@@ -5,6 +5,8 @@ export interface AlertEngineDeps {
   getRules(): AlertRule[]
   getWatchlist(): WatchItem[]
   hasFiredToday(secId: string, direction: 'up' | 'down'): boolean
+  /** 该规则+标的+方向最近一次触发时间（epoch ms）；minutes 冷却用。未提供则退化为当日判断 */
+  lastFiredAt?(ruleId: string, secId: string, direction: 'up' | 'down'): number | null
   insertEvent(e: Omit<AlertEvent, 'id'>): AlertEvent
   isDndNow(now?: Date): boolean
   log?: (...a: unknown[]) => void
@@ -31,10 +33,7 @@ export class AlertEngine extends EventEmitter {
         const hit = this.evaluate(rule, snap)
         if (!hit) continue
         const [dir, value, msg] = hit
-        if (this.deps.hasFiredToday(snap.secId, dir)) continue
-        if (rule.cooldown.startsWith('minutes:')) {
-          // 简化为分钟级冷却按当日已触发判断亦可（MVP）
-        }
+        if (this.inCooldown(rule, snap.secId, dir, now)) continue
         if (this.deps.isDndNow(now)) {
           this.deps.log?.('[Alert] suppressed by DND:', snap.secId)
           continue
@@ -53,6 +52,17 @@ export class AlertEngine extends EventEmitter {
       }
     }
     return fired
+  }
+
+  /** 冷却判定：minutes:N 按规则+标的+方向的最近触发时间；其余（oncePerDay 等）按当日同向一次 */
+  private inCooldown(rule: AlertRule, secId: string, dir: 'up' | 'down', now: Date): boolean {
+    const m = /^minutes:(\d+)$/.exec(rule.cooldown)
+    if (!m) return this.deps.hasFiredToday(secId, dir)
+    const minutes = Number(m[1])
+    if (!Number.isFinite(minutes) || minutes <= 0) return this.deps.hasFiredToday(secId, dir)
+    const last = this.deps.lastFiredAt?.(rule.id, secId, dir) ?? null
+    if (last === null) return false
+    return now.getTime() - last < minutes * 60_000
   }
 
   private evaluate(rule: AlertRule, s: QuoteSnapshot): ['up' | 'down', number, string] | null {

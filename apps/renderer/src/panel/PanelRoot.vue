@@ -39,7 +39,9 @@
       <main class="main">
         <WatchlistView v-if="tab === 'watchlist'" />
         <RulesView v-else-if="tab === 'rules'" />
-        <SettingsView v-else />
+        <DataSourceView v-else-if="tab === 'datasource'" />
+        <SettingsView v-else-if="tab === 'settings'" />
+        <AboutView v-else />
       </main>
     </div>
   </div>
@@ -49,18 +51,23 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import WatchlistView from './views/WatchlistView.vue'
 import RulesView from './views/RulesView.vue'
+import DataSourceView from './views/DataSourceView.vue'
 import SettingsView from './views/SettingsView.vue'
+import AboutView from './views/AboutView.vue'
 import { api, onNotice } from '../api'
 import { theme, setTheme } from './theme'
+import type { DataSourceStatus } from '@shared/index'
 
 const tabs = [
   { key: 'watchlist', label: '自选列表', icon: '📈' },
   { key: 'rules', label: '提醒规则', icon: '🔔' },
+  { key: 'datasource', label: '数据源', icon: '🔌' },
   { key: 'settings', label: '设置', icon: '⚙️' },
+  { key: 'about', label: '关于', icon: 'ℹ️' },
 ] as const
 
 const tab = ref<(typeof tabs)[number]['key']>('watchlist')
-const ds = ref<{ source: string; state: string; lastOkAt: number | null }>({ source: '-', state: '-', lastOkAt: null })
+const ds = ref<DataSourceStatus>({ source: '-', state: '-', lastOkAt: null, latencyMs: null, primaryName: '-', standbyName: '-', failoverCount: 0 })
 let off: (() => void) | null = null
 let statusTimer: ReturnType<typeof setInterval> | null = null
 

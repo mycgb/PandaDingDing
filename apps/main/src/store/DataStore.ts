@@ -5,12 +5,14 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import {
   DEFAULT_SETTINGS, type AlertRule, type AppSettings, type AlertEvent, type WatchItem, type MarketType,
+  type ClosingReport,
 } from '../../../../packages/shared/src/index.ts'
 
 type Row = Record<string, unknown>
 
 const MIGRATIONS: { version: number; file: string }[] = [
   { version: 1, file: '001_init.sql' },
+  { version: 2, file: '002_closing_reports.sql' },
 ]
 
 export class DataStore {
@@ -119,6 +121,18 @@ export class DataStore {
     return Number(r.c) > 0
   }
 
+  /** 规则+标的+方向最近一次触发时间（epoch ms），用于分钟级冷却。规则 ID 变更历史也兼容。 */
+  lastFiredAt(ruleId: string, secId: string, direction: 'up' | 'down'): number | null {
+    const r = this.db.prepare(`
+      SELECT triggered_at FROM alert_events
+      WHERE rule_id = ? AND sec_id = ? AND direction = ?
+      ORDER BY triggered_at DESC LIMIT 1
+    `).get(ruleId, secId, direction) as Row | undefined
+    if (!r) return null
+    const t = Date.parse(String(r.triggered_at))
+    return Number.isFinite(t) ? t : null
+  }
+
   listAlertEvents(date?: string): AlertEvent[] {
     const d = date ?? 'now'
     const rows = this.db.prepare(
@@ -135,6 +149,26 @@ export class DataStore {
     this.db.prepare(
       "DELETE FROM alert_events WHERE sec_id = ? AND date(triggered_at) = date('now','localtime')",
     ).run(secId)
+  }
+
+  /* ---------- closing reports ---------- */
+
+  upsertClosingReport(r: ClosingReport): void {
+    this.db.prepare(`
+      INSERT INTO closing_reports (trade_date, generated_at, payload) VALUES (?,?,?)
+      ON CONFLICT(trade_date) DO UPDATE SET generated_at=excluded.generated_at, payload=excluded.payload
+    `).run(r.date, r.generatedAt, JSON.stringify(r))
+  }
+
+  listClosingReports(limit = 30): ClosingReport[] {
+    const rows = this.db.prepare(
+      'SELECT payload FROM closing_reports ORDER BY trade_date DESC LIMIT ?',
+    ).all(limit) as Row[]
+    const out: ClosingReport[] = []
+    for (const r of rows) {
+      try { out.push(JSON.parse(String(r.payload)) as ClosingReport) } catch { /* 跳过损坏数据 */ }
+    }
+    return out
   }
 
   /* ---------- settings ---------- */

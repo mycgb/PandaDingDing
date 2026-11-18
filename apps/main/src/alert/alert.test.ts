@@ -12,7 +12,7 @@ function snap(pct: number, price = 100): QuoteSnapshot {
   }
 }
 
-function makeEngine(rule: Partial<AlertRule>, opts?: { dnd?: boolean; fired?: boolean }) {
+function makeEngine(rule: Partial<AlertRule>, opts?: { dnd?: boolean; fired?: boolean; lastFiredAt?: Partial<Record<'up' | 'down', number>> }) {
   const events: Omit<AlertEvent, 'id'>[] = []
   const rules: AlertRule[] = [{
     id: 'r1', scope: 'security', secId: '1.600519', metric: 'changePct', op: 'absAbove',
@@ -26,6 +26,7 @@ function makeEngine(rule: Partial<AlertRule>, opts?: { dnd?: boolean; fired?: bo
     getRules: () => rules,
     getWatchlist: () => watch,
     hasFiredToday: () => !!opts?.fired,
+    lastFiredAt: (_ruleId, _secId, dir) => opts?.lastFiredAt?.[dir] ?? null,
     insertEvent: (e) => { events.push(e); return { ...e, id: events.length } },
     isDndNow: () => !!opts?.dnd,
   })
@@ -89,6 +90,23 @@ function makeEngine(rule: Partial<AlertRule>, opts?: { dnd?: boolean; fired?: bo
 {
   const { engine } = makeEngine({ threshold: 5, enabled: false })
   assert.equal(engine.feed([snap(9)]).length, 0)
+}
+// minutes:30 冷却：未到间隔不触发；间隔已过触发；从未触发则触发
+{
+  const now = new Date('2026-11-18T10:00:00')
+  const recent = now.getTime() - 10 * 60_000   // 10 分钟前
+  const old = now.getTime() - 45 * 60_000      // 45 分钟前
+  const r = { threshold: 5, cooldown: 'minutes:30' }
+  assert.equal(makeEngine(r, { lastFiredAt: { up: recent } }).engine.feed([snap(6)], now).length, 0)
+  assert.equal(makeEngine(r, { lastFiredAt: { up: old } }).engine.feed([snap(6)], now).length, 1)
+  assert.equal(makeEngine(r, { lastFiredAt: {} }).engine.feed([snap(6)], now).length, 1)
+  // 反向方向独立冷却：up 刚触发过不影响 down
+  assert.equal(makeEngine(r, { lastFiredAt: { up: recent } }).engine.feed([snap(-6)], now).length, 1)
+}
+// oncePerDay 仍走 hasFiredToday（回归）
+{
+  const { engine } = makeEngine({ threshold: 5, cooldown: 'oncePerDay' }, { fired: true, lastFiredAt: { up: 1 } })
+  assert.equal(engine.feed([snap(6)]).length, 0)
 }
 
 // isDndNow

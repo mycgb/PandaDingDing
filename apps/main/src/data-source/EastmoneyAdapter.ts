@@ -1,4 +1,4 @@
-import type { QuoteSnapshot, SecId } from '../../../../packages/shared/src/index.ts'
+import type { QuoteSnapshot, SecId, MarketType } from '../../../../packages/shared/src/index.ts'
 import { EM_HEADERS, num, mkSnapshot, type QuoteAdapter } from './types.ts'
 
 /** 东财 push2 批量行情。字段映射见文档 §16.1 */
@@ -22,7 +22,7 @@ export class EastmoneyAdapter implements QuoteAdapter {
       if (!diff || !Array.isArray(diff)) return []
       return diff.map((d) => {
         const code = String(d.f12)
-        const market = Number(d.f13) as 0 | 1
+        const market = Number(d.f13) as MarketType
         return mkSnapshot({
           secId: `${market}.${code}`, code, market,
           name: String(d.f14 ?? ''),

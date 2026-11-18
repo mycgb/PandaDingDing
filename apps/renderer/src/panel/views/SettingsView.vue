@@ -52,6 +52,14 @@
         <span>开机自启</span>
         <input type="checkbox" v-model="s.autoStart" @change="save" />
       </label>
+      <label class="row">
+        <span>复制代码自动加自选</span>
+        <input type="checkbox" v-model="s.clipboardWatch" @change="save" />
+      </label>
+      <label class="row">
+        <span>收盘生成总结报告</span>
+        <input type="checkbox" v-model="s.closingReport" @change="save" />
+      </label>
     </div>
 
     <div class="card">
@@ -93,6 +101,27 @@
     </div>
 
     <div class="card">
+      <h2>收盘总结报告</h2>
+      <button class="mini" @click="loadReports">刷新</button>
+      <div v-if="reports.length === 0" class="empty">暂无收盘报告（每个交易日收盘后自动生成）</div>
+      <div v-for="r in reports" :key="r.date" class="report">
+        <div class="report-head">
+          <strong>{{ r.date }}</strong>
+          <span :class="(r.portfolioPct ?? 0) >= 0 ? 'up' : 'down'">
+            组合 {{ r.portfolioPct === null ? '--' : ((r.portfolioPct >= 0 ? '+' : '') + r.portfolioPct.toFixed(2) + '%') }}
+          </span>
+        </div>
+        <div class="report-body">{{ r.headline }}</div>
+        <div v-if="r.topGainers.length" class="report-line">
+          领涨：<span v-for="g in r.topGainers" :key="g.code" class="up">{{ g.name }} {{ g.changePct >= 0 ? '+' : '' }}{{ g.changePct }}% </span>
+        </div>
+        <div v-if="r.topLosers.length" class="report-line">
+          领跌：<span v-for="l in r.topLosers" :key="l.code" class="down">{{ l.name }} {{ l.changePct }}% </span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
       <h2>提醒历史</h2>
       <button class="mini" @click="loadHistory">刷新</button>
       <table class="history">
@@ -115,17 +144,19 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { api } from '../../api'
 import { setTheme as applyTheme } from '../theme'
-import type { AlertEvent, AppSettings, SkinInfo } from '@shared/index'
+import type { AlertEvent, AppSettings, SkinInfo, ClosingReport } from '@shared/index'
 
 const s = ref<AppSettings | null>(null)
 const skins = ref<SkinInfo[]>([])
 const history = ref<AlertEvent[]>([])
+const reports = ref<ClosingReport[]>([])
 
 onMounted(async () => {
   s.value = await api.settingsGet()
   if (s.value?.theme) applyTheme(s.value.theme as 'light' | 'dark')
   try { skins.value = await api.skinsList() } catch { skins.value = [] }
   history.value = await api.alertHistory()
+  reports.value = await api.closingReports()
   window.addEventListener('focus', refreshSettings)
 })
 onBeforeUnmount(() => window.removeEventListener('focus', refreshSettings))
@@ -200,6 +231,9 @@ function removeRange(i: number): void {
 async function loadHistory(): Promise<void> {
   history.value = await api.alertHistory()
 }
+async function loadReports(): Promise<void> {
+  reports.value = await api.closingReports()
+}
 </script>
 
 <style scoped>
@@ -259,5 +293,10 @@ h2 {
 .dim { color: var(--text-tertiary); }
 .up { color: var(--up); }
 .down { color: var(--down); }
-.empty { color: var(--text-tertiary); text-align: center; padding: 20px; }
+.empty { color: var(--text-tertiary); text-align: center; padding: 20px; font-size: 12px; }
+.report { border-bottom: 1px solid var(--border-soft); padding: 10px 0; font-size: 12px; }
+.report:last-child { border-bottom: none; }
+.report-head { display: flex; justify-content: space-between; margin-bottom: 5px; color: var(--text); }
+.report-body { color: var(--text-secondary); margin-bottom: 4px; }
+.report-line { color: var(--text-tertiary); margin-top: 3px; }
 </style>

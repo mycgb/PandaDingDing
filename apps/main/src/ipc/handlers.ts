@@ -3,7 +3,7 @@ import { IPC } from '../../../../packages/shared/src/index.ts'
 import type { DataStore } from '../store/DataStore.ts'
 import type { DataSourceManager } from '../data-source/DataSourceManager.ts'
 import type { QuoteScheduler } from '../scheduler/QuoteScheduler.ts'
-import { suggest } from '../search/suggest.ts'
+import { suggest, parseClipboardCode, BUILTIN_ETF } from '../search/suggest.ts'
 
 export interface IpcDeps {
   store: DataStore
@@ -19,13 +19,17 @@ export interface IpcDeps {
   listSkins(): import('../../../../packages/shared/src/index.ts').SkinInfo[]
   setPetVisible(visible: boolean): void
   refreshTray?(): void
+  /** 开机自启落地（跨平台：win/mac setLoginItemSettings，linux XDG autostart） */
+  setAutoStart?(enabled: boolean): void
 }
 
-const secIdSchema = z.string().regex(/^[01]\.\d{5,6}$/)
+// secId = 市场号.代码。市场号含 A股0/1、港股116、美股105/106/107、场外基金150；
+// 代码为 5-6 位数字（A股/港股）或 1-10 位字母数字（美股，如 AAPL/BRK.B）。
+const secIdSchema = z.string().regex(/^(0|1|105|106|107|116|150)\.[A-Za-z0-9.]{1,10}$/)
 const ruleSchema = z.object({
   id: z.string().min(1),
   scope: z.enum(['global', 'security']),
-  secId: z.string().regex(/^[01]\.\d{5,6}$/).optional().nullable(),
+  secId: z.string().regex(/^(0|1|105|106|107|116|150)\.[A-Za-z0-9.]{1,10}$/).optional().nullable(),
   metric: z.enum(['changePct', 'price', 'volumeMultiple']),
   op: z.enum(['above', 'below', 'absAbove']),
   threshold: z.number().min(0.1).max(20),
@@ -46,7 +50,8 @@ export function registerIpc(deps: IpcDeps): void {
   on(IPC.invoke.watchlistList, () => store.listWatchlist())
   on(IPC.invoke.watchlistAdd, (_e, secId: string, name: string, market: number) => {
     secIdSchema.parse(secId)
-    return store.addWatchlist(secId, name, market as 0 | 1)
+    const m = z.number().int().refine((v) => [0, 1, 105, 106, 107, 116, 150].includes(v)).parse(market)
+    return store.addWatchlist(secId, name, m as import('../../../../packages/shared/src/index.ts').MarketType)
   })
   on(IPC.invoke.watchlistRemove, (_e, secId: string) => { secIdSchema.parse(secId); store.removeWatchlist(secId) })
   on(IPC.invoke.watchlistReorder, (_e, secIds: string[]) => {
@@ -78,6 +83,13 @@ export function registerIpc(deps: IpcDeps): void {
     for (const k of Object.keys(safePatch)) store.setSetting(k, (safePatch as Record<string, unknown>)[k])
     deps.onSettingChanged(next)
     scheduler.start(next.pollIntervalMs)
+    // 开机自启：仅在值真正变化时落地到系统（避免每次改设置都写注册表/autostart）
+    if (Object.prototype.hasOwnProperty.call(safePatch, 'autoStart')
+        && typeof safePatch.autoStart === 'boolean'
+        && safePatch.autoStart !== cur.autoStart) {
+      try { deps.setAutoStart?.(safePatch.autoStart) }
+      catch (e) { console.error('[settings] setAutoStart failed:', e) }
+    }
     // 广播给桌宠窗口（气泡颜色、皮肤等设置实时生效）
     const { webContents } = require('electron') as typeof import('electron')
     for (const wc of webContents.getAllWebContents()) {
@@ -134,5 +146,23 @@ export function registerIpc(deps: IpcDeps): void {
   on(IPC.invoke.skinsList, () => deps.listSkins())
   on(IPC.invoke.dataSourceStatus, () => ({
     source: dsm.activeSource, state: dsm.currentState, lastOkAt: dsm.lastOk,
+    latencyMs: dsm.latencyMs, primaryName: dsm.primaryName, standbyName: dsm.standbyName,
+    failoverCount: dsm.failoverTimes,
   }))
+  // 收盘报告回看
+  on(IPC.invoke.closingReports, (_e, limit?: number) => store.listClosingReports(limit))
+  // 剪贴板代码识别：先本地正则解析，再从内置清单/网络搜索补名称
+  on(IPC.invoke.clipboardCheck, async (_e, text: string) => {
+    const parsed = parseClipboardCode(text)
+    if (!parsed) return null
+    const builtin = BUILTIN_ETF.find((b) => b.code === parsed.code)
+    if (builtin) return builtin
+    try {
+      const hits = await suggest(parsed.code)
+      const exact = hits.find((h) => h.code === parsed.code)
+      if (exact) return exact
+    } catch { /* 网络失败时用兜底 */ }
+    // 无网络结果：返回最小可加入项（名称=代码）
+    return { secId: `${parsed.market}.${parsed.code}`, code: parsed.code, name: parsed.code, market: parsed.market, type: 'stock' as const }
+  })
 }

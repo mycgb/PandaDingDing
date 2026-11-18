@@ -1,18 +1,19 @@
-import { app, BrowserWindow, Tray, Menu, screen, nativeImage } from 'electron'
+import { app, BrowserWindow, Tray, Menu, screen, nativeImage, clipboard } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
 import { DataStore } from './store/DataStore.ts'
 import { DataSourceManager } from './data-source/DataSourceManager.ts'
 import { bindFetch as bindEM } from './data-source/EastmoneyAdapter.ts'
 import { bindFetch as bindTX } from './data-source/TencentAdapter.ts'
+import { bindFetch as bindFund } from './data-source/FundAdapter.ts'
 import { QuoteScheduler } from './scheduler/QuoteScheduler.ts'
 import { AlertEngine, isDndNow } from './alert/AlertEngine.ts'
 import { portfolioPct, resolvePetState, type MoodThresholds } from './pet/petState.ts'
 import { registerIpc } from './ipc/handlers.ts'
-import { suggest, BUILTIN_ETF } from './search/suggest.ts'
+import { suggest, BUILTIN_ETF, parseClipboardCode } from './search/suggest.ts'
 import { setPetWindow } from './windows/petWindowAccess.ts'
 import { KlineService, bindFetch as bindKline } from './kline/KlineService.ts'
-import { IPC, phaseOf, DEFAULT_SETTINGS, type AppSettings, type QuoteSnapshot, type WatchItem, type PetState } from '../../../packages/shared/src/index.ts'
+import { IPC, phaseOf, DEFAULT_SETTINGS, type AppSettings, type QuoteSnapshot, type WatchItem, type PetState, type ClosingReport } from '../../../packages/shared/src/index.ts'
 import { pathToFileURL } from 'node:url'
 
 const IS_DEV = !!process.env.PETTICKER_DEV
@@ -141,6 +142,7 @@ function start(): void {
   const doFetch: typeof fetch = ((u: string, init?: RequestInit) => net.fetch(u, init)) as typeof fetch
   bindEM(doFetch)
   bindTX(doFetch)
+  bindFund(doFetch)
   bindKline(doFetch)
 
   store = new DataStore(
@@ -173,6 +175,7 @@ function start(): void {
     getRules: () => store.listRules(),
     getWatchlist: () => store.listWatchlist(),
     hasFiredToday: (secId, dir) => store.hasFiredToday(secId, dir),
+    lastFiredAt: (ruleId, secId, dir) => store.lastFiredAt(ruleId, secId, dir),
     insertEvent: (e) => store.insertAlertEvent(e),
     isDndNow: (now) => isDndNow(settings.dndRanges, settings.dndEnabled, now ?? new Date()),
   })
@@ -193,16 +196,102 @@ function start(): void {
     listSkins: () => listSkins(),
     setPetVisible: (visible) => setPetVisible(visible),
     refreshTray: () => refreshTray(),
+    setAutoStart: (enabled) => applyAutoStart(enabled),
   })
+  // 启动时同步一次自启设置，防止系统侧被外部改动后与设置页不一致
+  try { applyAutoStart(settings.autoStart) } catch (e) { log('同步开机自启失败:', e) }
 
   createTray()
   createPetWindow()
   scheduler.start(settings.pollIntervalMs)
+  startClipboardWatch()
 
   app.on('online', () => { dsm.setOnline(true); scheduler.start(settings.pollIntervalMs) })
   app.on('offline', () => { dsm.setOnline(false); broadcast(IPC.push.systemNotice, { type: 'network', message: '网络已断开' }) })
   app.on('window-all-closed', () => { /* 托盘常驻 */ })
-  app.on('before-quit', () => { scheduler.stop(); dsm.dispose(); store.close() })
+  app.on('before-quit', () => { scheduler.stop(); dsm.dispose(); stopClipboardWatch(); store.close() })
+}
+
+/* ---------- 剪贴板侦听（P2） ---------- */
+let clipboardTimer: NodeJS.Timeout | null = null
+let lastClipboardText = ''
+
+/** 轮询剪贴板：复制股票代码时识别并自动加入自选（开关开启时），广播提示。 */
+function startClipboardWatch(): void {
+  stopClipboardWatch()
+  // 初始化基线，避免启动时把已有剪贴板内容当作新复制
+  try { lastClipboardText = clipboard.readText() } catch { lastClipboardText = '' }
+  clipboardTimer = setInterval(() => {
+    if (!settings.clipboardWatch) return
+    let text: string
+    try { text = clipboard.readText() } catch { return }
+    if (!text || text === lastClipboardText) return
+    lastClipboardText = text
+    const parsed = parseClipboardCode(text)
+    if (!parsed) return
+    const secId = `${parsed.market}.${parsed.code}`
+    // 已在自选则跳过
+    if (store.listWatchlist().some((w) => w.secId === secId)) return
+    try {
+      // 名称尽力从内置清单补齐，缺失则用代码
+      const name = BUILTIN_ETF.find((b) => b.code === parsed.code)?.name ?? parsed.code
+      store.addWatchlist(secId, name, parsed.market)
+      broadcast(IPC.push.systemNotice, {
+        type: 'info', message: `已从剪贴板添加 ${parsed.code}（${name}）到自选`,
+      })
+      log('剪贴板检测到代码并加入自选:', secId)
+      pollOnce() // 立即拉一次行情
+    } catch (e) { log('剪贴板加入自选失败:', e) }
+  }, 1500)
+  clipboardTimer?.unref?.()
+}
+function stopClipboardWatch(): void {
+  if (clipboardTimer) { clearInterval(clipboardTimer); clipboardTimer = null }
+}
+
+/**
+ * 开机自启落地（P0 假开关修复）。
+ * - Windows/macOS：Electron 官方 setLoginItemSettings，打包后直接注册当前 exe。
+ * - Linux：无统一 API，写 XDG autostart 桌面项（~/.config/autostart）。
+ * 开发态（未打包）不注册真实自启，避免把 node/Electron 调试进程写进系统。
+ */
+function applyAutoStart(enabled: boolean): void {
+  const { app } = require('electron') as typeof import('electron')
+  if (process.platform !== 'linux') {
+    if (!app.isPackaged) { log(`开机自启=${enabled}（开发态跳过系统注册）`); return }
+    app.setLoginItemSettings({
+      openAtLogin: enabled,
+      // macOS 用隐藏方式启动，避免登录后弹出面板；桌宠窗口仍会显示
+      openAsHidden: process.platform === 'darwin' ? true : undefined,
+    })
+    log(`开机自启已设为 ${enabled}`)
+    return
+  }
+  // Linux: XDG autostart
+  try {
+    const dir = path.join(app.getPath('home'), '.config', 'autostart')
+    const file = path.join(dir, 'pandadingding.desktop')
+    if (!enabled) {
+      if (fs.existsSync(file)) fs.unlinkSync(file)
+      return
+    }
+    fs.mkdirSync(dir, { recursive: true })
+    const exec = app.isPackaged
+      ? `"${process.execPath}"`
+      : `"${process.execPath}" "${path.join(ROOT, 'scripts', 'dev.mjs')}"`
+    const content = [
+      '[Desktop Entry]',
+      'Type=Application',
+      'Name=PandaDingDing',
+      'Comment=熊猫盯盯 股票桌宠',
+      `Exec=${exec}`,
+      'X-GNOME-Autostart-enabled=true',
+      'NoDisplay=false',
+      '',
+    ].join('\n')
+    fs.writeFileSync(file, content, 'utf8')
+    log('Linux 开机自启已写入', file)
+  } catch (e) { log('Linux 开机自启写入失败:', e) }
 }
 
 function ensureDefaultRule(): void {
@@ -424,14 +513,37 @@ function onAlertFired(e: import('../../../packages/shared/src/index.ts').AlertEv
 
 function onPhaseChange(p: import('../../../packages/shared/src/index.ts').MarketPhase): void {
   broadcast(IPC.push.systemNotice, { type: 'phase', message: PHASE_LABEL[p] ?? p })
-  if (p === 'closed') {
-    // 收盘总结（15:00 后首次进入 closed）
-    const pct = portfolioPct(latestSnapshots, store.listWatchlist())
-    const up = latestSnapshots.filter((s) => (s.changePct ?? 0) > 0).length
-    const down = latestSnapshots.filter((s) => (s.changePct ?? 0) < 0).length
-    const msg = `今日自选 ${up}红${down}绿，组合 ${pct === null ? '--' : (pct >= 0 ? '+' : '') + pct.toFixed(2)}%`
-    broadcast(IPC.push.systemNotice, { type: 'phase', message: msg })
+  if (p === 'closed') generateClosingReport()
+}
+
+/** 收盘总结报告（P2）：统计红绿盘、组合涨跌、领涨领跌，落库并可回看 */
+function generateClosingReport(): void {
+  if (!settings.closingReport) { log('收盘报告已关闭，跳过'); return }
+  const snaps = latestSnapshots.filter((s) => s.changePct !== null && s.changePct !== undefined)
+  if (snaps.length === 0) { log('收盘报告：无有效快照，跳过'); return }
+  const wl = store.listWatchlist()
+  const up = snaps.filter((s) => (s.changePct ?? 0) > 0)
+  const down = snaps.filter((s) => (s.changePct ?? 0) < 0)
+  const flat = snaps.length - up.length - down.length
+  const pct = portfolioPct(latestSnapshots, wl)
+  const byPct = (a: QuoteSnapshot, b: QuoteSnapshot) => (b.changePct ?? 0) - (a.changePct ?? 0)
+  const topGainers = [...up].sort(byPct).slice(0, 5)
+    .map((s) => ({ name: s.name, code: s.code, changePct: s.changePct as number }))
+  const topLosers = [...down].sort((a, b) => (a.changePct ?? 0) - (b.changePct ?? 0)).slice(0, 5)
+    .map((s) => ({ name: s.name, code: s.code, changePct: s.changePct as number }))
+  const pctStr = pct === null ? '--' : `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`
+  const report: ClosingReport = {
+    date: new Date().toISOString().slice(0, 10),
+    generatedAt: new Date().toISOString(),
+    total: snaps.length, upCount: up.length, downCount: down.length, flatCount: flat,
+    portfolioPct: pct, topGainers, topLosers,
+    headline: `今日自选 ${up.length}红${down.length}绿${flat ? ` ${flat}平` : ''}，组合 ${pctStr}`,
   }
+  try {
+    store.upsertClosingReport(report)
+    broadcast(IPC.push.systemNotice, { type: 'phase', message: `收盘总结：${report.headline}` })
+    log('收盘报告已生成:', report.headline)
+  } catch (e) { log('收盘报告生成失败:', e) }
 }
 
 const PHASE_LABEL: Record<string, string> = {

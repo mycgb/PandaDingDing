@@ -2,7 +2,27 @@
 
 export * from './market-calendar.ts'
 
-export type MarketType = 0 | 1  // 1=沪 0=深（与东财 secid 前缀一致）
+/** 市场号，与东方财富 MktNum / secid 前缀一致 */
+export type MarketType =
+  | 0 | 1          // 0=深市 1=沪市（A股/场内ETF）
+  | 116            // 港股
+  | 105 | 106 | 107 // 美股（105=纳斯达克 106=纽交所 107=美交所）
+  | 150            // 场外基金（净值型）
+
+/** 资产类别：由 market 号推导，用于 UI 展示与数据源路由 */
+export type AssetCategory = 'stock' | 'etf' | 'hk' | 'us' | 'fund'
+
+/** 由市场号推导资产类别（唯一事实来源，避免各端各写一套） */
+export function categoryOf(market: MarketType): AssetCategory {
+  if (market === 116) return 'hk'
+  if (market === 105 || market === 106 || market === 107) return 'us'
+  if (market === 150) return 'fund'
+  // 场内 ETF/LOF 与股票共用 push2 通道，统一归 stock（搜索结果用 type 字段单独标注基金）
+  return 'stock'
+}
+
+/** 该市场号是否需要走特殊行情通道（场外基金 push2 不支持） */
+export function isOtcFund(market: MarketType): boolean { return market === 150 }
 
 export interface SecId { market: MarketType; code: string }
 
@@ -77,7 +97,32 @@ export interface SuggestItem {
   code: string
   name: string
   market: MarketType
-  type: string   // 'stock' | 'fund'
+  type: AssetCategory  // 资产类别（含港美股/场外基金）
+}
+
+/** 数据源状态（监控页用，带延迟指标） */
+export interface DataSourceStatus {
+  source: string
+  state: string
+  lastOkAt: number | null
+  latencyMs: number | null
+  primaryName: string
+  standbyName: string
+  failoverCount: number
+}
+
+/** 收盘总结报告（收盘时生成，可持久化/回看） */
+export interface ClosingReport {
+  date: string              // YYYY-MM-DD
+  generatedAt: string       // ISO
+  total: number
+  upCount: number
+  downCount: number
+  flatCount: number
+  portfolioPct: number | null
+  topGainers: { name: string; code: string; changePct: number }[]
+  topLosers: { name: string; code: string; changePct: number }[]
+  headline: string
 }
 
 export interface AppSettings {
@@ -96,6 +141,8 @@ export interface AppSettings {
   bubbleColor: string   // 桌宠头顶 tick 气泡背景色（CSS 颜色值）
   bubbleAlwaysOn: boolean  // 气泡常显：轮流显示每只自选，而不是随机弹出
   bubbleFontSize: number    // 气泡文字大小（px），默认 11
+  clipboardWatch: boolean  // 剪贴板侦听：复制股票代码时提示加入自选
+  closingReport: boolean   // 收盘自动生成总结报告
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -114,6 +161,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   bubbleColor: '#14181e',
   bubbleAlwaysOn: false,
   bubbleFontSize: 11,
+  clipboardWatch: false,
+  closingReport: true,
 }
 
 /* ---------- IPC channel 白名单 ---------- */
@@ -144,6 +193,8 @@ export const IPC = {
     trendsFetch: 'trends/fetch',
     skinsList: 'skins/list',
     dataSourceStatus: 'data-source/status',
+    closingReports: 'closing/reports',
+    clipboardCheck: 'clipboard/check',
   } as const,
   push: {
     quoteSnapshot: 'quote:snapshot',
@@ -178,7 +229,9 @@ export type IpcInvokeMap = {
   [IPC.invoke.klineFetch]: (secId: string, klt: number, lmt?: number) => KlinePoint[]
   [IPC.invoke.trendsFetch]: (secId: string) => TrendsResult
   [IPC.invoke.skinsList]: () => SkinInfo[]
-  [IPC.invoke.dataSourceStatus]: () => { source: string; state: string; lastOkAt: number | null }
+  [IPC.invoke.dataSourceStatus]: () => DataSourceStatus
+  [IPC.invoke.closingReports]: (limit?: number) => ClosingReport[]
+  [IPC.invoke.clipboardCheck]: (text: string) => SuggestItem | null
 }
 
 /** 可用皮肤：目录名 + manifest 中显示名 */

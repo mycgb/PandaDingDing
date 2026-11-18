@@ -4,7 +4,7 @@
       <input v-model="kw" placeholder="搜索代码/名称，如 600519 / 茅台 / 创业板ETF" @input="doSuggest" />
       <div v-if="suggests.length" class="suggest-box">
         <button v-for="s in suggests" :key="s.secId" @click="add(s)">
-          {{ s.code }} · {{ s.name }} <span class="tag">{{ s.type === 'fund' ? '基金' : '股票' }}</span>
+          {{ s.code }} · {{ s.name }} <span class="tag">{{ categoryLabel(s.type) }}</span>
         </button>
       </div>
       <span class="hint">Enter 全选第一项</span>
@@ -60,7 +60,8 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { api, onQuote } from '../../api'
 import KlinePopover from '../chart/KlinePopover.vue'
-import type { QuoteSnapshot, SuggestItem, WatchItem } from '@shared/index'
+import { isOtcFund } from '@shared/index'
+import type { QuoteSnapshot, SuggestItem, WatchItem, AssetCategory } from '@shared/index'
 
 const kw = ref('')
 const suggests = ref<SuggestItem[]>([])
@@ -80,6 +81,8 @@ let leaveTimer: ReturnType<typeof setTimeout> | null = null
 
 function onNameEnter(e: MouseEvent, w: WatchItem): void {
   clearHoverTimers()
+  // 场外基金是净值型，无 K 线/分时数据
+  if (isOtcFund(w.market)) return
   // 用鼠标实际位置作锚点：浮层出现在光标右下（空间不足自动翻转）
   const x = e.clientX
   const y = e.clientY
@@ -120,9 +123,9 @@ function doSuggest(): void {
 }
 
 async function add(s: SuggestItem): Promise<void> {
-  // A 股/场内基金只支持 6 位纯数字代码；期货(CN00Y)、港股(00700)等前端先拦住
-  if (!/^\d{6}$/.test(s.code)) {
-    alert(`暂不支持添加「${s.name}」：仅支持 A 股与场内基金（纯数字代码）`)
+  // 允许的市场号：A股0/1、美股105/106/107、港股116、场外基金150
+  if (![0, 1, 105, 106, 107, 116, 150].includes(s.market)) {
+    alert(`暂不支持添加「${s.name}」（市场号 ${s.market}）`)
     return
   }
   try {
@@ -180,9 +183,12 @@ async function onImportFile(e: Event): Promise<void> {
       const secId = item.secId as string
       const code = typeof item.code === 'string' ? item.code : secId.split('.')[1]
       const name = typeof item.name === 'string' ? item.name : code
-      const market = Number(item.market) === 1 ? 1 : 0
+      // 市场号从 secId 前缀推导（兼容旧导出文件 market 缺失/错误的情况）
+      const mktFromId = Number(String(secId).split('.')[0])
+      const market = ([0, 1, 105, 106, 107, 116, 150].includes(mktFromId)
+        ? mktFromId : Number(item.market) || 0) as import('@shared/index').MarketType
       try {
-        await api.watchlistAdd(secId, name, market as 0 | 1)
+        await api.watchlistAdd(secId, name, market)
         added++
       } catch (err) {
         const msg = (err as Error).message
@@ -205,7 +211,7 @@ const rows = computed((): (WatchItem & { price: number | null; changePct: number
       ...w,
       price: q?.price ?? null, changePct: q?.changePct ?? null,
       high: q?.high ?? null, low: q?.low ?? null, amount: q?.amount ?? null,
-      sourceLabel: q?.source === 'tencent' ? '腾讯' : q?.source === 'eastmoney' ? '东财' : '-',
+      sourceLabel: q?.source === 'tencent' ? '腾讯' : q?.source === 'eastmoney' ? '东财' : q?.source === 'eastmoney-fund' ? '基金净值' : '-',
     }
   })
   if (!sortKey.value) return base
@@ -222,6 +228,9 @@ function sortBy(k: keyof QuoteSnapshot): void {
   else { sortKey.value = k; sortDesc.value = true }
 }
 
+function categoryLabel(t: AssetCategory): string {
+  return ({ stock: 'A股', etf: 'ETF', hk: '港股', us: '美股', fund: '基金' } as Record<AssetCategory, string>)[t] ?? t
+}
 function fmt(v: number | null): string { return v === null ? '--' : v.toFixed(4) }
 function fmtPct(v: number | null): string { return v === null ? '--' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}%` }
 function fmtAmount(v: number | null): string {

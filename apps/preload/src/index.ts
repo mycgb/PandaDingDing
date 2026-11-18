@@ -35,6 +35,8 @@ const api = {
   trendsFetch: invoke('trendsFetch'),
   skinsList: invoke('skinsList'),
   dataSourceStatus: invoke('dataSourceStatus'),
+  closingReports: invoke('closingReports'),
+  clipboardCheck: invoke('clipboardCheck'),
   // push 订阅
   on: (channel: string, cb: (...args: unknown[]) => void) => {
     const valid = Object.values(IPC.push as Record<string, string>)
