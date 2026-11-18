@@ -165,4 +165,12 @@ export function registerIpc(deps: IpcDeps): void {
     // 无网络结果：返回最小可加入项（名称=代码）
     return { secId: `${parsed.market}.${parsed.code}`, code: parsed.code, name: parsed.code, market: parsed.market, type: 'stock' as const }
   })
+  // 用系统默认浏览器打开外部链接（关于页开源地址等）。仅允许 http/https，
+  // 避免 shell.openExternal 被误用于 file:// 等本地协议。
+  on(IPC.invoke.openExternal, (_e, url: string) => {
+    const parsedUrl = z.string().url().parse(url)
+    if (!/^https?:\/\//i.test(parsedUrl)) throw new Error('UNSUPPORTED_PROTOCOL')
+    const { shell } = require('electron') as typeof import('electron')
+    shell.openExternal(parsedUrl)
+  })
 }

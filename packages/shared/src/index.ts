@@ -206,6 +206,7 @@ export const IPC = {
     dataSourceStatus: 'data-source/status',
     closingReports: 'closing/reports',
     clipboardCheck: 'clipboard/check',
+    openExternal: 'shell/openExternal',
   } as const,
   push: {
     quoteSnapshot: 'quote:snapshot',
@@ -243,6 +244,7 @@ export type IpcInvokeMap = {
   [IPC.invoke.dataSourceStatus]: () => DataSourceStatus
   [IPC.invoke.closingReports]: (limit?: number) => ClosingReport[]
   [IPC.invoke.clipboardCheck]: (text: string) => SuggestItem | null
+  [IPC.invoke.openExternal]: (url: string) => void
 }
 
 /** 可用皮肤：目录名 + manifest 中显示名 */

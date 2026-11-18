@@ -7,6 +7,16 @@
       <p class="version">版本 v{{ version }}</p>
     </div>
 
+    <div class="card source-card">
+      <h2>开源地址</h2>
+      <p class="source-desc">PandaDingDing 是完全开源的项目，欢迎 Star、提 Issue 与贡献代码。</p>
+      <a class="source-link" href="https://github.com/mycgb/PandaDingDing" @click.prevent="openRepo">
+        <span class="source-icon">🔗</span>
+        <span class="source-url">https://github.com/mycgb/PandaDingDing</span>
+        <span class="source-arrow">↗</span>
+      </a>
+    </div>
+
     <div class="card follow-card">
       <h2>关注公众号</h2>
       <div class="qr-wrap">
@@ -42,11 +52,19 @@
 </template>
 
 <script setup lang="ts">
+import { api } from '../../api'
+
 // 版本号取自 package.json（构建时注入），无则显示占位
 const version = (import.meta.env?.VITE_APP_VERSION as string | undefined) || '0.1.0'
 // 公众号二维码：放渲染层 public 目录，dev 由 vite 服务、打包随 dist 复制。
 // 相对路径以适配 file:// 与 http:// 两种加载方式（base='./'）。
 const qrImage = './wechat-official-account.jpg'
+
+const REPO_URL = 'https://github.com/mycgb/PandaDingDing'
+// 交给主进程 shell.openExternal，用系统默认浏览器打开（而非应用内窗口）。
+function openRepo(): void {
+  api.openExternal(REPO_URL).catch(() => { /* 打开失败静默处理 */ })
+}
 </script>
 
 <style scoped>
@@ -68,6 +86,21 @@ li { font-size: 13px; line-height: 1.8; color: var(--text); }
 .dim { color: var(--text-tertiary); font-size: 12px; }
 .disclaimer { border-left: 3px solid var(--accent); }
 .follow-card { text-align: center; }
+.source-desc { color: var(--text-secondary); font-size: 12px; margin: 0 0 12px; }
+.source-link {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 14px; border: 1px solid var(--border-soft); border-radius: 8px;
+  background: var(--surface-2, var(--bg)); text-decoration: none;
+  color: var(--accent); cursor: pointer; transition: border-color .15s, background .15s;
+}
+.source-link:hover { border-color: var(--accent); background: var(--surface-hover, var(--surface)); }
+.source-icon { font-size: 16px; line-height: 1; }
+.source-url {
+  flex: 1; min-width: 0; font-size: 13px;
+  font-family: 'SF Mono', Consolas, monospace;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.source-arrow { font-size: 15px; opacity: .7; }
 .qr-wrap {
   display: inline-block; padding: 10px; background: #fff;
   border: 1px solid var(--border-soft); border-radius: 12px; line-height: 0;
