@@ -1,7 +1,26 @@
-# 多平台打包发布：win / mac / linux
+# 多平台打包发布：Windows / macOS / Linux
+#
+# 触发方式：
+#   1. Actions 面板手动运行（可单选平台）—— 仅上传构建产物，不建 Release
+#   2. 推送标签 v*（如 git tag v0.1.0 && git push origin v0.1.0）—— 构建全部平台并创建 Release
+#
+# 说明：每个平台/架构在对应的原生 runner 上构建，确保 better-sqlite3 等原生模块
+# 针对目标 Electron ABI 正确重建。架构通过 --x64 / --arm64 开关传给 electron-builder。
 name: Build & Release
 
 on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: '要构建的平台（all = 全部）'
+        type: choice
+        required: true
+        default: all
+        options:
+          - all
+          - win
+          - mac
+          - linux
   push:
     tags:
       - 'v*'
@@ -9,42 +28,56 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: build-release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  # 计算本次要构建哪些平台（手动触发时按输入过滤，标签触发时构建全部）
   meta:
     name: Metadata
     runs-on: ubuntu-latest
     outputs:
+      matrix: ${{ steps.meta.outputs.matrix }}
       version: ${{ steps.meta.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-      - name: derive version
+      - name: derive build matrix and version
         id: meta
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_PLATFORM: ${{ inputs.platform }}
         run: |
+          set -euo pipefail
           VERSION=$(node -p "require('./package.json').version")
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
+          # 全部平台的构建定义。arch_flag 是 electron-builder CLI 开关。
+          WIN='{"os":"windows-latest","platform":"win","arch":"x64","arch_flag":"--x64"}'
+          MAC_X64='{"os":"macos-15-intel","platform":"mac","arch":"x64","arch_flag":"--x64"}'
+          MAC_ARM='{"os":"macos-latest","platform":"mac","arch":"arm64","arch_flag":"--arm64"}'
+          LINUX='{"os":"ubuntu-latest","platform":"linux","arch":"x64","arch_flag":"--x64"}'
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            case "$INPUT_PLATFORM" in
+              win)   ITEMS="$WIN" ;;
+              mac)   ITEMS="$MAC_X64,$MAC_ARM" ;;
+              linux) ITEMS="$LINUX" ;;
+              *)     ITEMS="$WIN,$MAC_X64,$MAC_ARM,$LINUX" ;;
+            esac
+          else
+            ITEMS="$WIN,$MAC_X64,$MAC_ARM,$LINUX"
+          fi
+          echo "matrix={\"include\":[$ITEMS]}" >> "$GITHUB_OUTPUT"
+          echo "build matrix: {\"include\":[$ITEMS]}"
+
   build:
-    name: Build (${{ matrix.os }}-${{ matrix.arch }})
+    name: Build (${{ matrix.platform }}-${{ matrix.arch }})
+    needs: meta
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            platform: windows
-            arch: x64
-          - os: macos-latest
-            platform: mac
-            arch: arm64
-          - os: macos-13
-            platform: mac
-            arch: x64
-          - os: ubuntu-latest
-            platform: linux
-            arch: x64
-    env:
-      NODE_ENV: production
-      CSC_IDENTITY_AUTO_DISCOVERY: false
+      matrix: ${{ fromJSON(needs.meta.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -53,92 +86,114 @@ jobs:
           node-version: 20
           cache: pnpm
 
+      # 注意：不要在此设置 NODE_ENV=production，否则 pnpm install 会跳过 devDependencies，
+      # 导致 vite / esbuild / electron 缺失，构建直接失败。
       - name: install deps
         run: pnpm install --frozen-lockfile
 
       - name: build source
         run: pnpm build
 
-      - name: rebuild native modules for target Electron ABI
-        run: pnpx electron-rebuild -f -w better-sqlite3 -a ${{ matrix.arch }}
-        shell: bash
-
+      # electron-builder 默认 npmRebuild=true，会自动用目标 Electron ABI 重建 native 模块，
+      # 无需额外 electron-rebuild（该包也不在依赖里，pnpx 临时拉取不稳定）。
       - name: package with electron-builder
-        run: npx electron-builder --${{ matrix.platform }} --${{ matrix.arch }} --config electron-builder.yml --publish never
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: false
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
           NODE_ENV: production
+        run: >-
+          npx electron-builder --${{ matrix.platform }} ${{ matrix.arch_flag }}
+          --config electron-builder.yml --publish never
 
-      - name: collect artifacts (flatten by platform+arch)
+      - name: collect artifacts
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          ARCH: ${{ matrix.arch }}
         run: |
-          OUT="release-${{ matrix.platform }}-${{ matrix.arch }}"
+          set -euo pipefail
+          OUT="release-${PLATFORM}-${ARCH}"
           mkdir -p "$OUT"
-          case "${{ matrix.platform }}" in
-            windows)
-              cp release/win-unpacked/*.exe "$OUT/" 2>/dev/null || true
+          case "$PLATFORM" in
+            win)
+              # NSIS 安装版 + portable 便携版都在 release/ 根目录
+              find release -maxdepth 1 -type f -name '*.exe' -exec cp {} "$OUT/" \;
               ;;
             mac)
-              find release -maxdepth 2 -type f \( -name "*.dmg" -o -name "*.zip" \) -exec cp {} "$OUT/" \;
+              find release -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.zip' \) -exec cp {} "$OUT/" \;
               ;;
             linux)
-              find release -maxdepth 2 -type f \( -name "*.AppImage" -o -name "*.deb" \) -exec cp {} "$OUT/" \;
+              find release -maxdepth 1 -type f \( -name '*.AppImage' -o -name '*.deb' \) -exec cp {} "$OUT/" \;
               ;;
           esac
-        shell: bash
+          echo "--- collected in $OUT ---"
+          ls -lh "$OUT"
+          # 防止空产物被上传后 release 步骤出错
+          if [ -z "$(ls -A "$OUT")" ]; then
+            echo "::error::没有收集到任何 $PLATFORM 构建产物"
+            exit 1
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
           name: panda-dingding-${{ matrix.platform }}-${{ matrix.arch }}
           path: release-${{ matrix.platform }}-${{ matrix.arch }}/
-          retention-days: 7
+          if-no-files-found: error
+          retention-days: 14
 
   release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
     needs: [meta, build]
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/v')
     steps:
-      - uses: actions/checkout@v4
-      - name: download all artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           pattern: panda-dingding-*
           path: dist-artifacts/
           merge-multiple: true
 
       - name: build release body
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
         run: |
+          set -euo pipefail
           {
-            echo "**版本号:** ${{ needs.meta.outputs.version }}"
-            echo "**构建时间:** $(date -u +'%Y-%m-%d %H:%M UTC')"
-            echo "**提交:** ${{ github.sha }}"
+            echo "PandaDingDing · 熊猫盯盯  ${VERSION}"
+            echo ""
+            echo "构建时间：$(date -u +'%Y-%m-%d %H:%M UTC')"
+            echo "提交：\`${GITHUB_SHA}\`"
             echo ""
             echo "## 下载"
+            echo ""
             for f in dist-artifacts/*; do
               [ -f "$f" ] || continue
               name=$(basename "$f")
               size_mb=$(awk "BEGIN { printf \"%.2f\", $(stat -c%s "$f")/1048576 }")
               case "$name" in
-                *setup.exe*) plat="Windows (NSIS 安装版)" ;;
-                *portable.exe*) plat="Windows (Portable 便携版)" ;;
-                *.AppImage) plat="Linux (AppImage)" ;;
-                *.deb) plat="Linux (Debian/Ubuntu)" ;;
-                *.dmg) plat="macOS (DMG)" ;;
-                *.zip) plat="macOS (ZIP 压缩包)" ;;
-                *) plat="—" ;;
+                *-win-*-nsis.exe)       label="Windows 安装版 (NSIS)" ;;
+                *-win-*-portable.exe)   label="Windows 便携版 (Portable)" ;;
+                *-mac-arm64.dmg)        label="macOS Apple Silicon (DMG)" ;;
+                *-mac-x64.dmg)          label="macOS Intel (DMG)" ;;
+                *-mac-arm64.zip)        label="macOS Apple Silicon (ZIP)" ;;
+                *-mac-x64.zip)          label="macOS Intel (ZIP)" ;;
+                *-linux-*.AppImage)     label="Linux (AppImage)" ;;
+                *-linux-*.deb)          label="Linux (deb)" ;;
+                *)                      label="其他" ;;
               esac
-              echo "- [$plat](https://github.com/mycgb/PandaDingDing/releases/download/${{ github.ref_name }}/$name) — ${size_mb} MB"
+              echo "- ${label} — [${name}](https://github.com/${REPO}/releases/download/${TAG}/${name})（${size_mb} MB）"
             done
+            echo ""
+            echo "> 行情数据仅供参考，不构成投资建议。"
           } > release-body.md
           cat release-body.md
 
-      - name: create draft release
-        uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: ${{ needs.meta.outputs.version }}
+          name: PandaDingDing ${{ needs.meta.outputs.version }}
           body_path: release-body.md
-          draft: true
+          draft: false
           prerelease: false
-          files: |
-            dist-artifacts/*
+          files: dist-artifacts/*

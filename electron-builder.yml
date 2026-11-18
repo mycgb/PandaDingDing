@@ -32,13 +32,15 @@ asar: true
 asarUnpack:
   - node_modules/better-sqlite3/**
 
+# 目标架构不在 config 里写死，统一由 CLI 的 --arch 参数控制：
+#   本地 pnpm dist* → 按当前主机架构构建；
+#   CI 矩阵          → 每个 job 显式传 --arch=x64 / --arch=arm64。
+# 这样 mac 的 x64 与 arm64 可在各自原生 runner 上分别构建原生模块（better-sqlite3）。
 win:
   icon: resources/icons/icon.png
   target:
     - target: nsis
-      arch: [x64]
     - target: portable
-      arch: [x64]
   artifactName: ${productName}-${version}-win-${arch}-${target}.${ext}
 
 nsis:
@@ -58,9 +60,7 @@ mac:
   notarize: false
   target:
     - target: dmg
-      arch: [x64, arm64]
     - target: zip
-      arch: [x64, arm64]
   artifactName: ${productName}-${version}-mac-${arch}.${ext}
 
 linux:
@@ -70,9 +70,7 @@ linux:
   synopsis: 熊猫盯盯 - 桌宠股票基金监控
   target:
     - target: AppImage
-      arch: [x64]
     - target: deb
-      arch: [x64]
   artifactName: ${productName}-${version}-linux-${arch}.${ext}
 
 publish:
