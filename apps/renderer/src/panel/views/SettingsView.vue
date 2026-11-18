@@ -98,6 +98,15 @@
         <span>点击穿透</span>
         <input type="checkbox" v-model="s.clickThrough" @change="toggleClickThrough" />
       </label>
+      <label class="row">
+        <span>空闲时桌宠散步漫游</span>
+        <input type="checkbox" v-model="s.roamEnabled" @change="save" />
+      </label>
+      <label class="row">
+        <span>托盘涨跌角标 + hover 快览</span>
+        <input type="checkbox" v-model="s.trayBadge" @change="save" />
+      </label>
+      <div class="hint">漫游：空闲约 45 秒后桌宠走到屏幕底部来回散步，撞边自动折返翻面；有提醒、拖动或盘后会自动停下。托盘角标遵循红涨绿跌，鼠标悬停可看组合涨跌概览。</div>
     </div>
 
     <div class="card">
@@ -294,6 +303,7 @@ h2 {
 .up { color: var(--up); }
 .down { color: var(--down); }
 .empty { color: var(--text-tertiary); text-align: center; padding: 20px; font-size: 12px; }
+.hint { font-size: 11px; line-height: 1.6; color: var(--text-tertiary); margin: 6px 0 0 220px; }
 .report { border-bottom: 1px solid var(--border-soft); padding: 10px 0; font-size: 12px; }
 .report:last-child { border-bottom: none; }
 .report-head { display: flex; justify-content: space-between; margin-bottom: 5px; color: var(--text); }

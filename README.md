@@ -223,3 +223,13 @@ node scripts/cdp-shot.mjs "window=panel" out.png    # 截图（不受窗口遮�
 - 法定节假日表内置到 2027 年，需按交易所公告年度更新（`packages/shared/src/market-calendar.ts`）。
 - 打包分发（electron-builder）配置已提供，但未在本机完成端到端验证。
 - 仅支持 Windows；macOS/Linux 需验证透明窗口行为。
+
+---
+
+## 关注公众号
+
+<p align="center">
+  <img src="docs/wechat-official-account.jpg" width="240" alt="PandaDingDing 公众号二维码" />
+</p>
+
+<p align="center">扫码关注公众号，获取 PandaDingDing 的最新动态与使用教程</p>

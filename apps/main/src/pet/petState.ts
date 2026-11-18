@@ -36,8 +36,20 @@ export function phasePetOverride(phase: MarketPhase): PetState | null {
 }
 
 /**
- * 状态优先级（文档 §7.3）：alert > offline > 时段降速(sleepy) > mood > walk
+ * 漫游是否接管当前基础情绪。
+ * 只在中性 idle（组合无涨跌倾向）且控制器判定可漫游时接管为 walk；
+ * 不覆盖 idle-smile / idle-frown（有明确情绪时保持站立表达）。
+ * 这是纯函数，便于单测。
+ */
+export function roamDecision(base: PetState, roamActive: boolean, facing?: 'left' | 'right'): PetState {
+  if (!roamActive || base.action !== 'idle') return base
+  return { action: 'walk', reason: 'roam', facing: facing ?? 'right' }
+}
+
+/**
+ * 状态优先级（文档 §7.3）：alert > offline > 时段降速(sleepy) > mood(+walk)
  * 注意：桌宠永远有一个"在播放"的动作，不存在完全静止的时段（sleepy 只是降速）。
+ * walk 由 RoamController 调度，只在中性 idle 且控制器放行时接管。
  */
 export function resolvePetState(input: {
   alertActive?: boolean
@@ -46,6 +58,8 @@ export function resolvePetState(input: {
   phase: MarketPhase
   pct: number | null
   thresholds: MoodThresholds
+  roamActive?: boolean
+  roamFacing?: 'left' | 'right'
 }): PetState {
   if (input.alertActive) {
     return input.alertDirection === 'down'
@@ -55,5 +69,6 @@ export function resolvePetState(input: {
   if (input.offline) return { action: 'offline', reason: 'offline' }
   const o = phasePetOverride(input.phase)
   if (o) return o
-  return baseMoodState(input.pct, input.thresholds)
+  const base = baseMoodState(input.pct, input.thresholds)
+  return roamDecision(base, input.roamActive ?? false, input.roamFacing)
 }

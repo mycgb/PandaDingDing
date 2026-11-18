@@ -220,6 +220,7 @@ async function applySkin(skinId: string): Promise<void> {
   sprite.x = STAGE_W / 2
   sprite.y = STAGE_H - 12
   applyDisplaySize()
+  applyFacing()
   app!.stage.addChild(sprite)
   playAction(props.state.action)
   diag({ skinChanged: skinId })
@@ -257,12 +258,24 @@ function applyDisplaySize(): void {
   if (d.bottom !== undefined) sprite.y = STAGE_H - d.bottom
 }
 
+/** 漫游朝向：walk 且 facing=left 时水平翻转；其余动作恢复正向。 */
+function applyFacing(): void {
+  if (!sprite) return
+  const left = props.state.action === 'walk' && props.state.facing === 'left'
+  // scale.x 的绝对值由 applyDisplaySize 设置，这里只切换符号
+  sprite.scale.x = Math.abs(sprite.scale.x) * (left ? -1 : 1)
+  diag({ facing: left ? 'left' : 'right' })
+}
+
 onBeforeUnmount(() => {
   stopFrameTimer()
   app?.destroy(true)
 })
 
-watch(() => props.state.action, (a) => playAction(a))
+watch(
+  () => [props.state.action, props.state.facing] as const,
+  ([a]) => { playAction(a); applyFacing() },
+)
 
 defineExpose({ setAction: (a: string) => playAction(a) })
 

@@ -9,7 +9,9 @@ import { bindFetch as bindFund } from './data-source/FundAdapter.ts'
 import { QuoteScheduler } from './scheduler/QuoteScheduler.ts'
 import { AlertEngine, isDndNow } from './alert/AlertEngine.ts'
 import { enrichDerived } from './alert/derivedMetrics.ts'
-import { portfolioPct, resolvePetState, type MoodThresholds } from './pet/petState.ts'
+import { portfolioPct, resolvePetState, baseMoodState, type MoodThresholds } from './pet/petState.ts'
+import { RoamController } from './pet/RoamController.ts'
+import { decideBadge } from './tray/trayBadge.ts'
 import { registerIpc } from './ipc/handlers.ts'
 import { suggest, BUILTIN_ETF, parseClipboardCode } from './search/suggest.ts'
 import { setPetWindow } from './windows/petWindowAccess.ts'
@@ -44,6 +46,9 @@ function computePaths(): void {
 function res(...p: string[]): string { return path.join(ROOT, 'resources', ...p) }
 
 let tray: Tray | null = null
+/** 托盘当前使用的图标文件（用于角标态去重，避免每轮 setImage 闪烁） */
+let trayIconFile: string | null = null
+let roamCtrl: RoamController | null = null
 let petWin: BrowserWindow | null = null
 let panelWin: BrowserWindow | null = null
 let store: DataStore
@@ -191,7 +196,18 @@ function start(): void {
   registerIpc({
     store, dsm, scheduler,
     getSnapshots: () => latestSnapshots,
-    onSettingChanged: (s) => { settings = s },
+    onSettingChanged: (s) => {
+      const prevSkin = settings.skin
+      settings = s
+      // 皮肤更换：基础托盘图可能变化，强制重建图标
+      if (s.skin !== prevSkin) {
+        trayIconFile = null
+        const base = trayBasePath()
+        if (base && tray && fs.existsSync(base)) tray.setImage(nativeImage.createFromPath(base))
+      }
+      // 角标开关变化后立即刷新（开→显示角标，关→回基础图）
+      updateTrayBadge(portfolioPct(latestSnapshots, store.listWatchlist()), Date.now() < alertHoldUntil)
+    },
     getSettingsRef: () => settings,
     openPanel: () => createPanelWindow(),
     closePanel: () => { panelWin?.close() },
@@ -207,13 +223,14 @@ function start(): void {
 
   createTray()
   createPetWindow()
+  createRoamController()
   scheduler.start(settings.pollIntervalMs)
   startClipboardWatch()
 
   app.on('online', () => { dsm.setOnline(true); scheduler.start(settings.pollIntervalMs) })
   app.on('offline', () => { dsm.setOnline(false); broadcast(IPC.push.systemNotice, { type: 'network', message: '网络已断开' }) })
   app.on('window-all-closed', () => { /* 托盘常驻 */ })
-  app.on('before-quit', () => { scheduler.stop(); dsm.dispose(); stopClipboardWatch(); store.close() })
+  app.on('before-quit', () => { scheduler.stop(); dsm.dispose(); stopClipboardWatch(); roamCtrl?.stop(); store.close() })
 }
 
 /* ---------- 剪贴板侦听（P2） ---------- */
@@ -387,9 +404,11 @@ function createPetWindow(): void {
   petWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   // 区分「单击」与「拖拽」：app-region 让 OS 接管移动，这里用 moved 距离判断。
   // 未移动 → 视为单击 → 打开管理面板；移动过 → 视为拖拽 → 落盘位置。
-  petWin.on('will-move', () => { petMoved = false })
+  petWin.on('will-move', () => { if (!isRoamProgrammatic()) petMoved = false })
   petWin.on('moved', () => {
+    if (isRoamProgrammatic()) return   // 漫游程序化移动：不落盘、不打断、不污染单击判断
     petMoved = true
+    roamCtrl?.notifyUserActivity()     // 用户手动拖拽：立即中断漫游
     const [rx, ry] = petWin!.getPosition()
     // 边界约束：至少保留 80px 可见，防止桌宠被拖出屏幕后"丢失"
     const [cx, cy] = clampToWorkArea(rx, ry, PET_W, PET_H)
@@ -402,7 +421,49 @@ function createPetWindow(): void {
   petWin.on('closed', () => { petWin = null })
 }
 
+/** 最近这次窗口移动是否来自漫游调度器（避免程序化移动被当成用户拖拽） */
+function isRoamProgrammatic(): boolean {
+  return !!roamCtrl?.isProgrammaticMove()
+}
+
+/**
+ * 桌宠漫游调度器：空闲时沿桌面底部来回散步，撞边翻面。
+ * canRoam 只在中性的"无事可做"时段放行（提醒/离线/盘后/隐藏/穿透/拖拽中均不漫游）；
+ * 真正是否显示为 walk 仍由 resolvePetState 的优先级链决定，二者一致。
+ */
+function createRoamController(): void {
+  roamCtrl = new RoamController({
+    getPosition: () => {
+      const [x, y] = petWin && !petWin.isDestroyed() ? petWin.getPosition() : [0, 0]
+      return { x, y }
+    },
+    setPosition: (x, y) => { if (petWin && !petWin.isDestroyed()) petWin.setPosition(x, y) },
+    getWorkArea: () => {
+      const [x, y] = petWin && !petWin.isDestroyed() ? petWin.getPosition() : [0, 0]
+      return screen.getDisplayNearestPoint({ x, y }).workArea
+    },
+    isEnabled: () => settings.roamEnabled,
+    canRoam: () => {
+      if (!settings.petVisible || settings.clickThrough) return false
+      if (petMoved) return false                       // 正在/刚被用户拖拽
+      if (Date.now() < alertHoldUntil) return false    // 提醒展示中
+      if (dsm.currentState === 'OFFLINE') return false
+      const phase = phaseOf(new Date())
+      if (phase === 'closed' || phase === 'weekend' || phase === 'holiday') return false
+      // 仅在组合情绪中性（idle）时漫游；有明确涨跌情绪时保持站立表达
+      const pct = portfolioPct(latestSnapshots, store.listWatchlist())
+      return baseMoodState(pct, moodThresholds()).action === 'idle'
+    },
+    onFacingChange: () => pushPetState(),  // 让渲染层拿到最新 facing 翻面
+    onActivity: () => pushPetState(),
+    persistPosition: (p) => store.setSetting('petPosition', { x: Math.round(p.x), y: Math.round(p.y) }),
+    log,
+  })
+  roamCtrl.start()
+}
+
 function createPanelWindow(): void {
+  roamCtrl?.notifyUserActivity()   // 用户交互：中断漫游
   if (panelWin) { panelWin.show(); panelWin.focus(); return }
   const primary = screen.getPrimaryDisplay()
   panelWin = new BrowserWindow({
@@ -444,16 +505,46 @@ function setClickThrough(on: boolean): void {
 
 /* ---------- 托盘 ---------- */
 
-function createTray(): void {
-  // 托盘图标：优先皮肤自带的 tray.png，其次全局 icons/tray.png
+/** 解析托盘基础图标路径：优先皮肤自带 tray.png，其次全局 icons/tray.png */
+function trayBasePath(): string | null {
   const candidates = [
     res('skins', settings.skin, 'tray.png'),
     res('icons', 'tray.png'),
   ]
-  const iconPath = candidates.find((p) => fs.existsSync(p))
+  return candidates.find((p) => fs.existsSync(p)) ?? null
+}
+
+/** 角标图统一取全局 icons（基于默认熊头生成），保证四态一致 */
+function trayBadgePath(file: string): string { return res('icons', file) }
+
+function createTray(): void {
+  const iconPath = trayBasePath()
   const img = iconPath ? nativeImage.createFromPath(iconPath) : nativeImage.createEmpty()
   tray = new Tray(img)
+  trayIconFile = null
   refreshTray()
+}
+
+/**
+ * 按组合涨跌/提醒/离线切换托盘角标 + 动态 tooltip（hover 快览）。
+ * 仅在图标文件变化时 setImage，避免轮询每轮重建托盘图导致闪烁。
+ */
+function updateTrayBadge(pct: number | null, alerting: boolean): void {
+  if (!tray) return
+  const decision = decideBadge({
+    pct, alerting,
+    offline: dsm.currentState === 'OFFLINE',
+    enabled: settings.trayBadge,
+    source: dsm.activeSource === '东方财富' ? '东财' : dsm.activeSource,
+    snapshots: latestSnapshots,
+    clickThrough: settings.clickThrough,
+  })
+  if (decision.iconFile !== trayIconFile) {
+    const path = decision.iconFile ? trayBadgePath(decision.iconFile) : trayBasePath()
+    if (path && fs.existsSync(path)) tray.setImage(nativeImage.createFromPath(path))
+    trayIconFile = decision.iconFile
+  }
+  tray.setToolTip(decision.tooltip)
 }
 
 /** 重建托盘菜单：动态显示点击穿透状态（穿透时置顶显示"恢复交互"，避免用户卡死） */
@@ -481,7 +572,8 @@ function refreshTray(): void {
     { label: '退出', click: () => app.quit() },
   )
   tray.setContextMenu(Menu.buildFromTemplate(items))
-  tray.setToolTip(ct ? 'PandaDingDing（点击穿透中 · 托盘可恢复）' : 'PandaDingDing 股票桌宠')
+  // tooltip / 角标统一由 updateTrayBadge 维护（含穿透态提示），这里同步刷新一次
+  updateTrayBadge(portfolioPct(latestSnapshots, store.listWatchlist()), Date.now() < alertHoldUntil)
   // 穿透态下左键单击托盘 = 快速恢复交互；否则打开面板
   tray.on('click', () => {
     if (settings.clickThrough) { setClickThrough(false); refreshTray() }
@@ -569,8 +661,11 @@ function pushPetState(): void {
     phase: phaseOf(new Date()),
     pct,
     thresholds: moodThresholds(),
+    roamActive: roamCtrl?.isRoaming ?? false,
+    roamFacing: roamCtrl?.roamFacing ?? 'right',
   })
   broadcast(IPC.push.petState, state)
+  updateTrayBadge(pct, Date.now() < alertHoldUntil)
 }
 
 function broadcast(channel: string, payload: unknown): void {

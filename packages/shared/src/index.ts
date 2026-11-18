@@ -90,6 +90,8 @@ export interface AlertEvent {
 export interface PetState {
   action: 'idle' | 'idle-smile' | 'idle-frown' | 'happy' | 'sad' | 'panic-happy' | 'panic-sad' | 'sleep' | 'walk' | 'offline'
   reason?: string
+  /** 漫游朝向：渲染层据此水平翻转 walk 帧；'left' 时朝左 */
+  facing?: 'left' | 'right'
 }
 
 export interface SystemNotice {
@@ -148,6 +150,8 @@ export interface AppSettings {
   bubbleFontSize: number    // 气泡文字大小（px），默认 11
   clipboardWatch: boolean  // 剪贴板侦听：复制股票代码时提示加入自选
   closingReport: boolean   // 收盘自动生成总结报告
+  roamEnabled: boolean     // 桌宠漫游：空闲时在桌面底部来回散步（默认开）
+  trayBadge: boolean       // 托盘角标：显示组合涨跌红绿点 + hover 快览（默认开）
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -168,6 +172,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   bubbleFontSize: 11,
   clipboardWatch: false,
   closingReport: true,
+  roamEnabled: true,
+  trayBadge: true,
 }
 
 /* ---------- IPC channel 白名单 ---------- */

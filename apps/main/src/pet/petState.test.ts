@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { portfolioPct, resolvePetState, baseMoodState, phasePetOverride } from './petState.ts'
+import { portfolioPct, resolvePetState, baseMoodState, phasePetOverride, roamDecision } from './petState.ts'
 import type { QuoteSnapshot, WatchItem } from '../../../../packages/shared/src/index.ts'
 
 const w = (secId: string, weight = 1): WatchItem => ({
@@ -45,5 +45,20 @@ assert.equal(resolvePetState({ phase: 'weekend', pct: -5, thresholds: th }).acti
 assert.equal(resolvePetState({ phase: 'holiday', pct: -5, thresholds: th }).action, 'sleepy')
 assert.equal(resolvePetState({ phase: 'continuous', pct: 5, thresholds: th }).action, 'idle-smile')
 assert.equal(resolvePetState({ phase: 'continuous', pct: -5, thresholds: th }).action, 'idle-frown')
+
+// roamDecision：只在中性 idle 且放行时接管为 walk，带朝向
+assert.equal(roamDecision({ action: 'idle' }, false).action, 'idle')
+assert.equal(roamDecision({ action: 'idle' }, true).action, 'walk')
+assert.equal(roamDecision({ action: 'idle' }, true, 'left').facing, 'left')
+// 有明确情绪时不被漫游覆盖
+assert.equal(roamDecision({ action: 'idle-smile' }, true).action, 'idle-smile')
+assert.equal(roamDecision({ action: 'idle-frown' }, true).action, 'idle-frown')
+
+// resolvePetState 漫游集成：中性 + 放行 → walk
+assert.equal(resolvePetState({ phase: 'continuous', pct: 0, thresholds: th, roamActive: true }).action, 'walk')
+// 提醒/离线/盘后仍优先于漫游
+assert.equal(resolvePetState({ alertActive: true, phase: 'continuous', pct: 0, thresholds: th, roamActive: true }).action, 'panic-happy')
+assert.equal(resolvePetState({ offline: true, phase: 'continuous', pct: 0, thresholds: th, roamActive: true }).action, 'offline')
+assert.equal(resolvePetState({ phase: 'closed', pct: 0, thresholds: th, roamActive: true }).action, 'sleepy')
 
 console.log('pet-state: all tests passed')
