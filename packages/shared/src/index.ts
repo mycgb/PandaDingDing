@@ -34,7 +34,7 @@ export interface QuoteSnapshot {
   price: number | null
   changePct: number | null
   change: number | null
-  volume: number | null      // 手
+  volume: number | null      // 手（当日累计）
   amount: number | null     // 元
   high: number | null
   low: number | null
@@ -42,6 +42,10 @@ export interface QuoteSnapshot {
   prevClose: number | null
   fetchedAt: number         // epoch ms
   source: string            // 'eastmoney' | 'tencent'
+  /** 派生指标：近 N 日同期均量（手），由主进程根据日K注入，用于 volumeMultiple 规则判定 */
+  volumeBaseline?: number | null
+  /** 派生指标：连涨（正）/连跌（负）天数，由主进程根据日K注入，用于 streakUp/streakDown 判定 */
+  streakDays?: number | null
 }
 
 export interface WatchItem {
@@ -54,7 +58,8 @@ export interface WatchItem {
   createdAt: string
 }
 
-export type AlertMetric = 'changePct' | 'price' | 'volumeMultiple'
+/** 提醒指标。volumeMultiple=成交量倍数；streakUp/streakDown=连涨/连跌天数（阈值为天数） */
+export type AlertMetric = 'changePct' | 'price' | 'volumeMultiple' | 'streakUp' | 'streakDown'
 export type AlertOp = 'above' | 'below' | 'absAbove'
 export type AlertCooldown = 'oncePerDay' | string  // 'minutes:30'
 

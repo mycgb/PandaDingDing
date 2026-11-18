@@ -84,7 +84,7 @@ export class DataStore {
   }
 
   upsertRule(rule: AlertRule): void {
-    if (rule.threshold < 0.1 || rule.threshold > 20) throw new Error('THRESHOLD_RANGE')
+    if (rule.threshold < 0.1 || rule.threshold > 100) throw new Error('THRESHOLD_RANGE')
     if (rule.scope === 'security' && !rule.secId) throw new Error('SEC_REQUIRED')
     this.db.prepare(`
       INSERT INTO alert_rules (id, scope, sec_id, metric, op, threshold, cooldown, enabled)

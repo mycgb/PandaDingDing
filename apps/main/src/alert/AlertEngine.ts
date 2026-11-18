@@ -66,30 +66,54 @@ export class AlertEngine extends EventEmitter {
   }
 
   private evaluate(rule: AlertRule, s: QuoteSnapshot): ['up' | 'down', number, string] | null {
-    let value: number | null = null
-    switch (rule.metric) {
-      case 'changePct': value = s.changePct; break
-      case 'price': value = s.price; break
-      case 'volumeMultiple': return null  // MVP 暂不启用
-    }
-    if (value === null || value === undefined) return null
+    const derived = metricValue(rule.metric, s)
+    if (derived === null) return null
+    const { value, label } = derived
+    // 连涨/连跌天数语义是「达到 N 天」→ 用 >=；其余指标保持原有 above/below/absAbove 语义
+    const aboveHit = rule.metric === 'streakUp' || rule.metric === 'streakDown'
+      ? value >= rule.threshold
+      : value > rule.threshold
+    const dir = directionOf(rule.metric, value)
+    const unit = rule.metric === 'streakUp' || rule.metric === 'streakDown' ? ' 天' : ''
     switch (rule.op) {
       case 'above':
-        if (value > rule.threshold)
-          return ['up', value, `${s.name} ${fmt(value)} 已高于阈值 ${rule.threshold}`]
+        if (aboveHit) return [dir, value, `${s.name} ${label}，达到阈值 ${rule.threshold}${unit}`]
         return null
       case 'below':
-        if (value < rule.threshold)
-          return ['down', value, `${s.name} ${fmt(value)} 已低于阈值 ${rule.threshold}`]
+        if (value < rule.threshold) return [dir, value, `${s.name} ${label}，低于阈值 ${rule.threshold}`]
         return null
       case 'absAbove':
-        if (Math.abs(value) >= rule.threshold) {
-          const dir: 'up' | 'down' = value >= 0 ? 'up' : 'down'
-          return [dir, value, `${s.name} ${fmt(value)} 已达阈值 ±${rule.threshold}`]
-        }
+        if (Math.abs(value) >= rule.threshold)
+          return [dir, value, `${s.name} ${label}，绝对值达到 ±${rule.threshold}`]
         return null
     }
     return null
+  }
+}
+
+/** 触发方向：连跌指标固定 down，连涨/up 类固定 up，其余按数值符号 */
+function directionOf(metric: AlertRule['metric'], value: number): 'up' | 'down' {
+  if (metric === 'streakDown') return 'down'
+  if (metric === 'streakUp') return 'up'
+  return value >= 0 ? 'up' : 'down'
+}
+
+/** 取指标当前值与展示文本；数据未就绪（如派生字段未注入）返回 null */
+function metricValue(metric: AlertRule['metric'], s: QuoteSnapshot): { value: number; label: string } | null {
+  switch (metric) {
+    case 'changePct':
+      return s.changePct == null ? null : { value: s.changePct, label: `涨跌幅 ${fmt(s.changePct)}` }
+    case 'price':
+      return s.price == null ? null : { value: s.price, label: `价格 ${s.price.toFixed(2)} 元` }
+    case 'volumeMultiple': {
+      if (s.volume == null || s.volumeBaseline == null || s.volumeBaseline <= 0) return null
+      const ratio = s.volume / s.volumeBaseline
+      return { value: ratio, label: `成交量 ${ratio.toFixed(2)} 倍` }
+    }
+    case 'streakUp':
+      return s.streakDays == null ? null : { value: s.streakDays, label: `已连涨 ${s.streakDays} 天` }
+    case 'streakDown':
+      return s.streakDays == null ? null : { value: -s.streakDays, label: `已连跌 ${-s.streakDays} 天` }
   }
 }
 

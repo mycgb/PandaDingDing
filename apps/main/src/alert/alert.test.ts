@@ -109,6 +109,47 @@ function makeEngine(rule: Partial<AlertRule>, opts?: { dnd?: boolean; fired?: bo
   assert.equal(engine.feed([snap(6)]).length, 0)
 }
 
+// 成交量倍数：当日量 / 基准，达阈值触发；未注入基准则不触发（数据未就绪保护）
+{
+  const base = { ...snap(0), volume: 250, volumeBaseline: 100 }
+  const { engine, events } = makeEngine({ metric: 'volumeMultiple', op: 'above', threshold: 2 })
+  const fired = engine.feed([base])
+  assert.equal(fired.length, 1)
+  assert.equal(fired[0].direction, 'up')
+  assert.ok(fired[0].message.includes('2.50 倍'))
+  assert.ok(events[0].value > 2.49 && events[0].value < 2.51)
+}
+{
+  const { engine } = makeEngine({ metric: 'volumeMultiple', op: 'above', threshold: 2 })
+  assert.equal(engine.feed([{ ...snap(0), volume: 250, volumeBaseline: null }]).length, 0)
+  assert.equal(engine.feed([{ ...snap(0), volume: 250 }]).length, 0)
+  // 未达阈值
+  assert.equal(engine.feed([{ ...snap(0), volume: 150, volumeBaseline: 100 }]).length, 0)
+}
+// 连涨天数：>= 阈值触发（含第 N 天），方向 up
+{
+  const { engine, events } = makeEngine({ metric: 'streakUp', op: 'above', threshold: 3 })
+  assert.equal(engine.feed([{ ...snap(0), streakDays: 3 }]).length, 1)   // 恰好 3 天也触发
+  assert.equal(events[0].direction, 'up')
+  assert.equal(engine.feed([{ ...snap(0), streakDays: 2 }]).length, 0)
+  assert.equal(engine.feed([{ ...snap(0), streakDays: -5 }]).length, 0)  // 连跌不触发连涨
+}
+// 连跌天数：方向 down，与连涨的冷却方向隔离
+{
+  const { engine, events } = makeEngine({ metric: 'streakDown', op: 'above', threshold: 4 })
+  const fired = engine.feed([{ ...snap(0), streakDays: -4 }])
+  assert.equal(fired.length, 1)
+  assert.equal(events[0].direction, 'down')
+  assert.ok(fired[0].message.includes('已连跌 4 天'))
+  assert.equal(engine.feed([{ ...snap(0), streakDays: -3 }]).length, 0)
+  assert.equal(engine.feed([{ ...snap(0), streakDays: 5 }]).length, 0)
+}
+// 派生字段未注入时，连涨规则不触发（避免把 null 当 0 误触发）
+{
+  const { engine } = makeEngine({ metric: 'streakUp', op: 'above', threshold: 3 })
+  assert.equal(engine.feed([snap(0)]).length, 0)
+}
+
 // isDndNow
 assert.equal(isDndNow([{ start: '12:00', end: '13:00' }], true, new Date('2026-11-17T12:30:00')), true)
 assert.equal(isDndNow([{ start: '12:00', end: '13:00' }], true, new Date('2026-11-17T11:59:00')), false)

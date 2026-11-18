@@ -2,7 +2,7 @@
   <section>
     <div class="toolbar">
       <button class="primary" @click="newRule">＋ 新建规则</button>
-      <span class="hint">全局规则对所有自选生效；标的级规则只对单只生效。默认已内置「全局 ±3%」。</span>
+      <span class="hint">全局规则对所有自选生效；标的级规则只对单只生效。成交量倍数=当日量/近5日均量（盘中按时间折算），连涨连跌基于日K收盘价。</span>
     </div>
 
     <table class="rules-table">
@@ -14,7 +14,7 @@
           <td>{{ r.scope === 'global' ? '全局' : '标的' }}</td>
           <td>{{ r.scope === 'global' ? '—' : nameOf(r.secId!) }}</td>
           <td>{{ metricLabel(r.metric) }}</td>
-          <td class="mono">{{ opLabel(r.op) }} {{ r.threshold }}{{ r.metric === 'changePct' ? '%' : '' }}</td>
+          <td class="mono">{{ opLabel(r.op) }} {{ r.threshold }}{{ unitOf(r.metric) }}</td>
           <td>{{ cooldownLabel(r.cooldown) }}</td>
           <td>
             <button class="mini" @click="editRule(r)">编辑</button>
@@ -44,17 +44,20 @@
           <select v-model="editing.metric">
             <option value="changePct">涨跌幅 %</option>
             <option value="price">价格（元）</option>
+            <option value="volumeMultiple">成交量倍数（相对近5日均量）</option>
+            <option value="streakUp">连涨天数</option>
+            <option value="streakDown">连跌天数</option>
           </select>
         </label>
         <label>条件
           <select v-model="editing.op">
             <option value="absAbove">绝对值达到 ±</option>
-            <option value="above">高于</option>
+            <option value="above">高于 / 达到</option>
             <option value="below">低于</option>
           </select>
         </label>
-        <label>阈值
-          <input v-model.number="editing.threshold" type="number" step="0.1" min="0.1" max="20" required />
+        <label>阈值{{ editing.metric === 'streakUp' || editing.metric === 'streakDown' ? '（天）' : editing.metric === 'volumeMultiple' ? '（倍）' : '' }}
+          <input v-model.number="editing.threshold" type="number" step="0.1" min="0.1" :max="editing.metric === 'changePct' ? 20 : 100" required />
         </label>
         <label>冷却
           <select v-model="editing.cooldown">
@@ -137,10 +140,20 @@ function cooldownLabel(cooldown: string): string {
   return cooldown
 }
 function metricLabel(m: string): string {
-  return m === 'changePct' ? '涨跌幅' : m === 'price' ? '价格' : '成交量倍数'
+  const map: Record<string, string> = {
+    changePct: '涨跌幅', price: '价格', volumeMultiple: '成交量倍数',
+    streakUp: '连涨天数', streakDown: '连跌天数',
+  }
+  return map[m] ?? m
+}
+function unitOf(m: string): string {
+  if (m === 'changePct') return '%'
+  if (m === 'volumeMultiple') return ' 倍'
+  if (m === 'streakUp' || m === 'streakDown') return ' 天'
+  return ''
 }
 function opLabel(o: string): string {
-  return o === 'absAbove' ? '|值|≥' : o === 'above' ? '>' : '<'
+  return o === 'absAbove' ? '|值|≥' : o === 'above' ? '≥' : '<'
 }
 </script>
 

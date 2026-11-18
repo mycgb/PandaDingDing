@@ -8,6 +8,7 @@ import { bindFetch as bindTX } from './data-source/TencentAdapter.ts'
 import { bindFetch as bindFund } from './data-source/FundAdapter.ts'
 import { QuoteScheduler } from './scheduler/QuoteScheduler.ts'
 import { AlertEngine, isDndNow } from './alert/AlertEngine.ts'
+import { enrichDerived } from './alert/derivedMetrics.ts'
 import { portfolioPct, resolvePetState, type MoodThresholds } from './pet/petState.ts'
 import { registerIpc } from './ipc/handlers.ts'
 import { suggest, BUILTIN_ETF, parseClipboardCode } from './search/suggest.ts'
@@ -49,6 +50,8 @@ let store: DataStore
 let dsm: DataSourceManager
 let scheduler: QuoteScheduler
 let alertEngine: AlertEngine
+/** K线服务单例：IPC 查询与提醒派生指标共用同一份 10 分钟缓存 */
+let klineSvc: KlineService
 let settings: AppSettings
 let latestSnapshots: QuoteSnapshot[] = []
 let alertHoldUntil = 0
@@ -170,6 +173,7 @@ function start(): void {
 
   dsm = new DataSourceManager(log)
   dsm.on('notice', (n) => broadcast(IPC.push.systemNotice, n))
+  klineSvc = new KlineService()
 
   alertEngine = new AlertEngine({
     getRules: () => store.listRules(),
@@ -192,7 +196,7 @@ function start(): void {
     openPanel: () => createPanelWindow(),
     closePanel: () => { panelWin?.close() },
     minimizePanel: () => { panelWin?.minimize() },
-    kline: new KlineService(),
+    kline: klineSvc,
     listSkins: () => listSkins(),
     setPetVisible: (visible) => setPetVisible(visible),
     refreshTray: () => refreshTray(),
@@ -499,6 +503,8 @@ async function pollOnce(): Promise<void> {
   latestSnapshots = snaps
   broadcast(IPC.push.quoteSnapshot, snaps)
   scheduler.setBackoff(dsm.backoff)
+  // 成交量倍数 / 连涨连跌规则需要日K派生数据；无相关规则时零开销，K线有 10 分钟缓存
+  await enrichDerived(snaps, store.listRules(), klineSvc, new Date(), log)
   alertEngine.feed(snaps)
   pushPetState()
 }
