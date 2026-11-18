@@ -38,9 +38,8 @@ jobs:
         run: |
           VERSION=$(node -p "require('./package.json').version")
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          INPUTS="${{ github.event.inputs.platforms }}"
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "$INPUTS" != "all" ]; then
-            case "$INPUTS" in
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.platforms }}" != "all" ]; then
+            case "${{ github.event.inputs.platforms }}" in
               win)  PLATFORMS='["windows"]' ;;
               mac)  PLATFORMS='["mac"]' ;;
               linux) PLATFORMS='["linux"]' ;;
