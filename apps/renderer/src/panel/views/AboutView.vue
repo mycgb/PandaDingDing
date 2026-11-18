@@ -7,16 +7,6 @@
       <p class="version">版本 v{{ version }}</p>
     </div>
 
-    <div class="card source-card">
-      <h2>开源地址</h2>
-      <p class="source-desc">PandaDingDing 是完全开源的项目，欢迎 Star、提 Issue 与贡献代码。</p>
-      <a class="source-link" href="https://github.com/mycgb/PandaDingDing" @click.prevent="openRepo">
-        <span class="source-icon">🔗</span>
-        <span class="source-url">https://github.com/mycgb/PandaDingDing</span>
-        <span class="source-arrow">↗</span>
-      </a>
-    </div>
-
     <div class="card follow-card">
       <h2>关注公众号</h2>
       <div class="qr-wrap">
@@ -47,6 +37,16 @@
       <p>本软件为个人学习与技术交流项目，所展示的行情、数据、提醒等信息<strong>仅供参考，不构成任何投资建议</strong>。</p>
       <p>任何依据本软件信息做出的投资决策及由此产生的盈亏，均由使用者自行承担。投资有风险，入市需谨慎。</p>
       <p class="dim">本软件与东方财富、腾讯财经等数据提供方无任何隶属或合作关系。</p>
+    </div>
+
+    <div class="card source-card">
+      <h2>开源地址</h2>
+      <p class="source-desc">PandaDingDing 是完全开源的项目，欢迎 Star、提 Issue 与贡献代码。</p>
+      <a class="source-link" href="https://github.com/mycgb/PandaDingDing" @click.prevent="openRepo">
+        <span class="source-icon">🔗</span>
+        <span class="source-url">https://github.com/mycgb/PandaDingDing</span>
+        <span class="source-arrow">↗</span>
+      </a>
     </div>
   </section>
 </template>
