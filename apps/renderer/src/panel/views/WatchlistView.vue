@@ -151,7 +151,7 @@ function exportList(): void {
   const d = new Date()
   const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`
   a.href = url
-  a.download = `petticker-watchlist-${stamp}.json`
+  a.download = `pandadingding-watchlist-${stamp}.json`
   a.click()
   URL.revokeObjectURL(url)
 }

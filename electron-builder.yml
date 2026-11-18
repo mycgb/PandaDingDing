@@ -67,7 +67,7 @@ linux:
   icon: resources/icons/icon.png
   category: Office;Finance
   maintainer: mycgb <mycgb@foxmail.com>
-  synopsis: 桌宠股票基金监控
+  synopsis: 熊猫盯盯 - 桌宠股票基金监控
   target:
     - target: AppImage
       arch: [x64]

@@ -1,4 +1,4 @@
-# PetTicker · 桌宠股票基金监控
+# PandaDingDing · 熊猫盯盯（桌宠股票基金监控）
 
 一只常驻桌面的像素猫，实时盯着你的 A 股自选与场内基金：涨了开心、跌了蔫，越过阈值会主动跳出来喊你。
 
@@ -6,9 +6,9 @@
 
 ![桌宠](docs/screenshot-pet.png)
 
-![管理面板（浅色主题）](docs/screenshot-panel.png)
+![管理面板 · 设置](docs/screenshot-panel.png)
 
-![管理面板（深色主题）](docs/screenshot-panel-dark.png)
+![管理面板 · 设置（完整）](docs/screenshot-panel-dark.png)
 
 ![K线浮层（鼠标悬停自选名称）](docs/kline-popover.png)
 

@@ -13,7 +13,7 @@
           <span>+</span>
         </button>
       </div>
-      <div class="titlebar-label">PetTicker</div>
+      <div class="titlebar-label">PandaDingDing</div>
       <div class="titlebar-spacer" />
     </header>
 
@@ -21,7 +21,7 @@
       <aside class="sidebar">
         <div class="brand">
           <span class="brand-icon">🐼</span>
-          <span>PetTicker</span>
+          <span>熊猫盯盯</span>
         </div>
         <nav class="nav">
           <button v-for="t in tabs" :key="t.key" :class="{ active: tab === t.key }" @click="tab = t.key">

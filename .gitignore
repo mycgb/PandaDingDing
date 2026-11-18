@@ -10,4 +10,5 @@ release/
 *.db
 *.db-journal
 .playwright-mcp/
+.workbuddy/
 tsconfig.tsbuildinfo

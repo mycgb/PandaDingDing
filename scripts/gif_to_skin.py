@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-把 GIF 动画转换成 PetTicker 皮肤包。
+把 GIF 动画转换成 PandaDingDing（熊猫盯盯）皮肤包。
 
 用法：
     python scripts/gif_to_skin.py <input.gif> <skin-name> [--long-side 280]
