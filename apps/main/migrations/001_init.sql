@@ -1,4 +1,4 @@
--- PetTicker 001 初始结构
+-- PandaDingDing 001 初始结构
 CREATE TABLE IF NOT EXISTS watchlist (
   sec_id      TEXT PRIMARY KEY,
   code        TEXT NOT NULL,
