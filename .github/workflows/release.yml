@@ -1,28 +1,13 @@
 # 多平台打包发布：win / mac / linux
-# 触发方式：
-#   1. 推送标签 v*（如 git tag v0.1.0 && git push origin v0.1.0）→ 自动构建 + 创建 GitHub Release draft
-#   2. Actions 面板手动触发（勾选需要构建的平台）→ 仅上传产物，不建 Release
 name: Build & Release
 
 on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:
-    inputs:
-      platforms:
-        description: '要构建的平台'
-        type: choice
-        required: true
-        default: 'all'
-        options:
-          - all
-          - win
-          - mac
-          - linux
 
 permissions:
-  contents: write   # 允许创建 Release 并上传 assets
+  contents: write
 
 jobs:
   meta:
@@ -30,25 +15,13 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.meta.outputs.version }}
-      platforms: ${{ steps.meta.outputs.platforms }}
     steps:
       - uses: actions/checkout@v4
-      - name: derive version & platforms
+      - name: derive version
         id: meta
         run: |
           VERSION=$(node -p "require('./package.json').version")
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.platforms }}" != "all" ]; then
-            case "${{ github.event.inputs.platforms }}" in
-              win)  PLATFORMS='["windows"]' ;;
-              mac)  PLATFORMS='["mac"]' ;;
-              linux) PLATFORMS='["linux"]' ;;
-              *)    PLATFORMS='["windows","mac","linux"]' ;;
-            esac
-          else
-            PLATFORMS='["windows","mac","linux"]'
-          fi
-          echo "platforms=${PLATFORMS}" >> "$GITHUB_OUTPUT"
 
   build:
     name: Build (${{ matrix.os }}-${{ matrix.arch }})
@@ -69,8 +42,6 @@ jobs:
           - os: ubuntu-latest
             platform: linux
             arch: x64
-    needs: meta
-    if: contains(fromJSON(needs.meta.outputs.platforms), matrix.platform)
     env:
       NODE_ENV: production
       CSC_IDENTITY_AUTO_DISCOVERY: false
@@ -91,9 +62,6 @@ jobs:
       - name: rebuild native modules for target Electron ABI
         run: pnpx electron-rebuild -f -w better-sqlite3 -a ${{ matrix.arch }}
         shell: bash
-        env:
-          ELECTRON_ARCH: ${{ matrix.arch }}
-          ELECTRON_VERSION: ${{ matrix.arch == 'x64' && 'x64' || 'arm64' }}
 
       - name: package with electron-builder
         run: npx electron-builder --${{ matrix.platform }} --${{ matrix.arch }} --config electron-builder.yml --publish never
@@ -110,14 +78,12 @@ jobs:
               cp release/win-unpacked/*.exe "$OUT/" 2>/dev/null || true
               ;;
             mac)
-              # dmg/zip already at release/; app dir structure varies per arch
               find release -maxdepth 2 -type f \( -name "*.dmg" -o -name "*.zip" \) -exec cp {} "$OUT/" \;
               ;;
             linux)
               find release -maxdepth 2 -type f \( -name "*.AppImage" -o -name "*.deb" \) -exec cp {} "$OUT/" \;
               ;;
           esac
-          ls -la "$OUT"/
         shell: bash
 
       - uses: actions/upload-artifact@v4
