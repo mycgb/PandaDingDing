@@ -7,6 +7,14 @@
       <p class="version">版本 v{{ version }}</p>
     </div>
 
+    <div class="card follow-card">
+      <h2>关注公众号</h2>
+      <div class="qr-wrap">
+        <img :src="qrImage" alt="PandaDingDing 公众号二维码" class="qr" />
+      </div>
+      <p class="qr-tip">扫码关注公众号，获取 PandaDingDing 的最新动态与使用教程</p>
+    </div>
+
     <div class="card">
       <h2>数据来源</h2>
       <p>行情数据来自 <strong>东方财富</strong>（主数据源），并在异常时自动切换到 <strong>腾讯财经</strong>（备用数据源）。</p>
@@ -36,6 +44,9 @@
 <script setup lang="ts">
 // 版本号取自 package.json（构建时注入），无则显示占位
 const version = (import.meta.env?.VITE_APP_VERSION as string | undefined) || '0.1.0'
+// 公众号二维码：放渲染层 public 目录，dev 由 vite 服务、打包随 dist 复制。
+// 相对路径以适配 file:// 与 http:// 两种加载方式（base='./'）。
+const qrImage = './wechat-official-account.jpg'
 </script>
 
 <style scoped>
@@ -56,4 +67,11 @@ ul { margin: 6px 0; padding-left: 20px; }
 li { font-size: 13px; line-height: 1.8; color: var(--text); }
 .dim { color: var(--text-tertiary); font-size: 12px; }
 .disclaimer { border-left: 3px solid var(--accent); }
+.follow-card { text-align: center; }
+.qr-wrap {
+  display: inline-block; padding: 10px; background: #fff;
+  border: 1px solid var(--border-soft); border-radius: 12px; line-height: 0;
+}
+.qr { width: 180px; height: 180px; display: block; image-rendering: auto; }
+.qr-tip { color: var(--text-secondary); font-size: 12px; margin: 10px 0 0; }
 </style>
