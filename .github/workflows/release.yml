@@ -80,10 +80,20 @@ jobs:
       matrix: ${{ fromJSON(needs.meta.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      # pnpm 11（见 package.json 的 packageManager）要求 Node >= 22.13：
+      # 它内部 require('node:sqlite')（Node 22.5+ 内置），Node 20 下会报
+      # ERR_UNKNOWN_BUILTIN_MODULE。先装 Node 22，再装 pnpm，
+      # 保证 pnpm/action-setup 自检版本时也跑在 Node 22 上。
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22.13
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.28.5
+      # pnpm 就绪后再 setup 一次以启用 store 缓存（setup-node 的 cache:pnpm 要求 pnpm 已可用）
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13
           cache: pnpm
 
       # 注意：不要在此设置 NODE_ENV=production，否则 pnpm install 会跳过 devDependencies，
