@@ -1,0 +1,48 @@
+# electron-builder 打包配置（结构参考；本机未完成端到端验证）
+#
+# 用法：pnpm build && npx electron-builder --win --config electron-builder.yml
+#
+# 注意：
+# 1) 本项目是 pnpm monorepo，better-sqlite3 是原生模块，必须针对 Electron ABI 预编译
+#    （见 README「安装」小节），打包时不能再被 rebuild 成 Node ABI。
+# 2) asar 打包后 app.getAppPath() 指向 asar 内部，主进程按 ROOT = appPath/../.. 定位
+#    resources；因此 resources 必须随包一起放进 asar（用 files 收集），或改为 extraResources
+#    并同步调整 apps/main/src/index.ts 里的 computePaths()。
+appId: com.petticker.app
+productName: PetTicker
+copyright: PetTicker
+
+directories:
+  output: release
+  buildResources: resources
+
+# 以根 package.json 为入口，但实际主进程产物在 apps/main/dist/index.cjs
+# （root package.json 的 "main" 已指向该文件，且 type=module 不影响 .cjs）
+files:
+  - package.json
+  - apps/main/dist/**
+  - apps/main/migrations/**
+  - apps/renderer/dist/**
+  - resources/**
+  - packages/shared/src/**
+  - '!**/node_modules/**/{test,__tests__,tests,example,examples,docs}/**'
+  - '!**/*.map'
+
+asar: true
+asarUnpack:
+  - node_modules/better-sqlite3/**
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+  icon: resources/icons/tray.png
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  shortcutName: PetTicker

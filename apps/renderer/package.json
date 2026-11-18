@@ -1,0 +1,23 @@
+{
+  "name": "@petticker/renderer",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "@petticker/shared": "workspace:*",
+    "echarts": "^6.1.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.0",
+    "pixi.js": "^8.14.0",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.0",
+    "vue": "^3.5.25",
+    "vue-tsc": "^3.0.0"
+  }
+}

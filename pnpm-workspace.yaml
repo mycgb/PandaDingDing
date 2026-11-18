@@ -1,0 +1,13 @@
+packages:
+  - apps/*
+  - packages/*
+
+onlyBuiltDependencies:
+  - electron
+  - better-sqlite3
+  - esbuild
+  - '@parcel/watcher'
+  - vue-demi
+  - sharp
+  - unrs-resolver
+  - express

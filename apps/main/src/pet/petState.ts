@@ -1,0 +1,59 @@
+import type { QuoteSnapshot, WatchItem, PetState } from '../../../../packages/shared/src/index.ts'
+import type { MarketPhase } from '../../../../packages/shared/src/index.ts'
+
+/** 组合情绪指标（文档 §11.2）：加权涨跌幅 → 桌宠情绪 */
+export function portfolioPct(snaps: QuoteSnapshot[], watchlist: WatchItem[]): number | null {
+  const weightBy = new Map(watchlist.map((w) => [w.secId, w.weight]))
+  let sum = 0, wsum = 0
+  for (const s of snaps) {
+    if (s.changePct === null || s.changePct === undefined) continue   // 停牌剔除
+    const w = weightBy.get(s.secId) ?? 1
+    sum += s.changePct * w
+    wsum += w
+  }
+  return wsum === 0 ? null : sum / wsum
+}
+
+export interface MoodThresholds { up: number; down: number }
+
+/** 组合情绪 → 基础桌宠状态（不含提醒/离线打断） */
+export function baseMoodState(pct: number | null, th: MoodThresholds): PetState {
+  if (pct === null) return { action: 'idle', reason: 'no-data' }
+  if (pct >= th.up) return { action: 'idle-smile' }
+  if (pct <= th.down) return { action: 'idle-frown' }
+  return { action: 'idle' }
+}
+
+/** 时段 → 附加状态覆盖（盘后睡觉等） */
+/**
+ * 时段 → 桌宠附加状态。
+ * 盘后/周末/节假日不再静止"睡觉"，而是降速播放（sleepy），保证桌宠持续有生命感；
+ * 仅"离线"一种情况静止（offline 动作），因为此时没有任何数据可展示。
+ */
+export function phasePetOverride(phase: MarketPhase): PetState | null {
+  if (phase === 'closed' || phase === 'weekend' || phase === 'holiday') return { action: 'sleepy', reason: phase }
+  return null
+}
+
+/**
+ * 状态优先级（文档 §7.3）：alert > offline > 时段降速(sleepy) > mood > walk
+ * 注意：桌宠永远有一个"在播放"的动作，不存在完全静止的时段（sleepy 只是降速）。
+ */
+export function resolvePetState(input: {
+  alertActive?: boolean
+  alertDirection?: 'up' | 'down'
+  offline?: boolean
+  phase: MarketPhase
+  pct: number | null
+  thresholds: MoodThresholds
+}): PetState {
+  if (input.alertActive) {
+    return input.alertDirection === 'down'
+      ? { action: 'panic-sad', reason: 'alert' }
+      : { action: 'panic-happy', reason: 'alert' }
+  }
+  if (input.offline) return { action: 'offline', reason: 'offline' }
+  const o = phasePetOverride(input.phase)
+  if (o) return o
+  return baseMoodState(input.pct, input.thresholds)
+}

@@ -1,0 +1,60 @@
+{
+  "name": "像素橘猫（占位）",
+  "fps": 12,
+  "anchor": [
+    0.5,
+    1.0
+  ],
+  "actions": {
+    "idle": {
+      "frames": 8,
+      "loop": true,
+      "next": null
+    },
+    "idle-smile": {
+      "frames": 8,
+      "loop": true,
+      "next": null
+    },
+    "idle-frown": {
+      "frames": 8,
+      "loop": true,
+      "next": null
+    },
+    "happy": {
+      "frames": 10,
+      "loop": false,
+      "next": "idle-smile"
+    },
+    "sad": {
+      "frames": 10,
+      "loop": false,
+      "next": "idle-frown"
+    },
+    "panic-happy": {
+      "frames": 6,
+      "loop": true,
+      "next": null
+    },
+    "panic-sad": {
+      "frames": 6,
+      "loop": true,
+      "next": null
+    },
+    "sleep": {
+      "frames": 6,
+      "loop": true,
+      "next": null
+    },
+    "offline": {
+      "frames": 6,
+      "loop": true,
+      "next": null
+    },
+    "walk": {
+      "frames": 8,
+      "loop": true,
+      "next": null
+    }
+  }
+}

@@ -1,0 +1,71 @@
+{
+  "name": "熊猫 mycgb · 挥手眨眼",
+  "fps": 12,
+  "anchor": [
+    0.5,
+    1.0
+  ],
+  "display": {
+    "width": 140,
+    "bottom": 6
+  },
+  "actions": {
+    "idle": {
+      "frames": 106,
+      "loop": true,
+      "next": null
+    },
+    "idle-smile": {
+      "frames": 106,
+      "loop": true,
+      "from": "idle"
+    },
+    "idle-frown": {
+      "frames": 106,
+      "loop": true,
+      "from": "idle"
+    },
+    "happy": {
+      "frames": 106,
+      "loop": true,
+      "from": "idle"
+    },
+    "sad": {
+      "frames": 106,
+      "loop": true,
+      "from": "idle"
+    },
+    "panic-happy": {
+      "frames": 106,
+      "loop": true,
+      "from": "idle"
+    },
+    "panic-sad": {
+      "frames": 106,
+      "loop": true,
+      "from": "idle"
+    },
+    "sleep": {
+      "frames": 1,
+      "loop": false,
+      "from": "idle",
+      "start": 1
+    },
+    "sleepy": {
+      "frames": 106,
+      "loop": true,
+      "from": "idle"
+    },
+    "offline": {
+      "frames": 1,
+      "loop": false,
+      "from": "idle",
+      "start": 1
+    },
+    "walk": {
+      "frames": 106,
+      "loop": true,
+      "from": "idle"
+    }
+  }
+}

@@ -1,0 +1,81 @@
+{
+  "name": "熊猫 mycgb",
+  "fps": 12,
+  "anchor": [
+    0.5,
+    1.0
+  ],
+  "display": {
+    "width": 244,
+    "bottom": 8
+  },
+  "actions": {
+    "idle": {
+      "frames": 124,
+      "loop": true,
+      "next": null
+    },
+    "idle-smile": {
+      "frames": 124,
+      "loop": true,
+      "fps": 15,
+      "from": "idle"
+    },
+    "idle-frown": {
+      "frames": 124,
+      "loop": true,
+      "fps": 7,
+      "from": "idle"
+    },
+    "happy": {
+      "frames": 124,
+      "loop": true,
+      "fps": 18,
+      "from": "idle"
+    },
+    "sad": {
+      "frames": 124,
+      "loop": true,
+      "fps": 6,
+      "from": "idle"
+    },
+    "panic-happy": {
+      "frames": 84,
+      "loop": true,
+      "fps": 26,
+      "start": 41,
+      "from": "idle"
+    },
+    "panic-sad": {
+      "frames": 84,
+      "loop": true,
+      "fps": 26,
+      "start": 41,
+      "from": "idle"
+    },
+    "sleep": {
+      "frames": 1,
+      "loop": false,
+      "start": 2,
+      "from": "idle"
+    },
+    "sleepy": {
+      "frames": 124,
+      "loop": true,
+      "fps": 5,
+      "from": "idle"
+    },
+    "offline": {
+      "frames": 1,
+      "loop": false,
+      "start": 2,
+      "from": "idle"
+    },
+    "walk": {
+      "frames": 124,
+      "loop": true,
+      "fps": 15,
+      "from": "idle"
+    }
+  }
+}

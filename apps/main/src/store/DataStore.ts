@@ -1,0 +1,156 @@
+/** better-sqlite3 封装：迁移 + 各仓储。主进程专用。 */
+import Database from 'better-sqlite3'
+import fs from 'node:fs'
+import path from 'node:path'
+import { randomUUID } from 'node:crypto'
+import {
+  DEFAULT_SETTINGS, type AlertRule, type AppSettings, type AlertEvent, type WatchItem, type MarketType,
+} from '../../../../packages/shared/src/index.ts'
+
+type Row = Record<string, unknown>
+
+const MIGRATIONS: { version: number; file: string }[] = [
+  { version: 1, file: '001_init.sql' },
+]
+
+export class DataStore {
+  private db: Database.Database
+
+  constructor(dbPath: string, migrationsDir: string) {
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true })
+    this.db = new Database(dbPath)
+    this.db.pragma('journal_mode = WAL')
+    this.db.pragma('foreign_keys = ON')
+    this.migrate(migrationsDir)
+  }
+
+  private migrate(dir: string): void {
+    const current = (this.db.pragma('user_version') as unknown as { user_version: number }[])[0].user_version
+    for (const m of MIGRATIONS.filter((m) => m.version > current)) {
+      const sql = fs.readFileSync(path.join(dir, m.file), 'utf8')
+      this.db.exec(sql)
+      this.db.pragma(`user_version = ${m.version}`)
+    }
+  }
+
+  close(): void { this.db.close() }
+
+  /* ---------- watchlist ---------- */
+
+  listWatchlist(): WatchItem[] {
+    const rows = this.db.prepare('SELECT * FROM watchlist ORDER BY sort_order ASC').all() as Row[]
+    return rows.map((r) => ({
+      secId: String(r.sec_id), code: String(r.code), name: String(r.name),
+      market: Number(r.market_type) as MarketType, weight: Number(r.weight),
+      sortOrder: Number(r.sort_order), createdAt: String(r.created_at),
+    }))
+  }
+
+  addWatchlist(secId: string, name: string, market: MarketType): WatchItem {
+    const exists = this.db.prepare('SELECT sec_id FROM watchlist WHERE sec_id = ?').get(secId)
+    if (exists) throw new Error('DUPLICATE')
+    const max = this.db.prepare('SELECT COALESCE(MAX(sort_order),0) AS m FROM watchlist').get() as Row
+    const code = secId.split('.')[1]
+    this.db.prepare(
+      'INSERT INTO watchlist (sec_id, code, name, market_type, sort_order) VALUES (?,?,?,?,?)',
+    ).run(secId, code, name, market, Number(max.m) + 1)
+    return this.listWatchlist().find((w) => w.secId === secId)!
+  }
+
+  removeWatchlist(secId: string): void {
+    this.db.prepare('DELETE FROM watchlist WHERE sec_id = ?').run(secId)
+  }
+
+  reorderWatchlist(secIds: string[]): void {
+    const tx = this.db.transaction(() => {
+      const stmt = this.db.prepare('UPDATE watchlist SET sort_order = ? WHERE sec_id = ?')
+      secIds.forEach((id, i) => stmt.run(i + 1, id))
+    })
+    tx()
+  }
+
+  /* ---------- alert rules ---------- */
+
+  listRules(): AlertRule[] {
+    const rows = this.db.prepare('SELECT * FROM alert_rules').all() as Row[]
+    return rows.map((r) => ({
+      id: String(r.id), scope: String(r.scope) as AlertRule['scope'],
+      secId: r.sec_id ? String(r.sec_id) : undefined,
+      metric: String(r.metric) as AlertRule['metric'], op: String(r.op) as AlertRule['op'],
+      threshold: Number(r.threshold), cooldown: String(r.cooldown), enabled: !!r.enabled,
+    }))
+  }
+
+  upsertRule(rule: AlertRule): void {
+    if (rule.threshold < 0.1 || rule.threshold > 20) throw new Error('THRESHOLD_RANGE')
+    if (rule.scope === 'security' && !rule.secId) throw new Error('SEC_REQUIRED')
+    this.db.prepare(`
+      INSERT INTO alert_rules (id, scope, sec_id, metric, op, threshold, cooldown, enabled)
+      VALUES (?,?,?,?,?,?,?,?)
+      ON CONFLICT(id) DO UPDATE SET
+        scope=excluded.scope, sec_id=excluded.sec_id, metric=excluded.metric,
+        op=excluded.op, threshold=excluded.threshold, cooldown=excluded.cooldown, enabled=excluded.enabled
+    `).run(
+      rule.id ?? randomUUID(), rule.scope, rule.secId ?? null, rule.metric, rule.op,
+      rule.threshold, rule.cooldown, rule.enabled ? 1 : 0,
+    )
+  }
+
+  deleteRule(ruleId: string): void {
+    this.db.prepare('DELETE FROM alert_rules WHERE id = ?').run(ruleId)
+  }
+
+  /* ---------- alert events ---------- */
+
+  insertAlertEvent(e: Omit<AlertEvent, 'id'>): AlertEvent {
+    const r = this.db.prepare(`
+      INSERT INTO alert_events (sec_id, sec_name, rule_id, direction, value, message)
+      VALUES (?,?,?,?,?,?)
+    `).run(e.secId, e.secName, e.ruleId, e.direction, e.value, e.message)
+    return { ...e, id: Number(r.lastInsertRowid) }
+  }
+
+  /** 当日是否已同向触发（防骚扰去重） */
+  hasFiredToday(secId: string, direction: 'up' | 'down'): boolean {
+    const r = this.db.prepare(`
+      SELECT COUNT(*) AS c FROM alert_events
+      WHERE sec_id = ? AND direction = ? AND date(triggered_at) = date('now','localtime')
+    `).get(secId, direction) as Row
+    return Number(r.c) > 0
+  }
+
+  listAlertEvents(date?: string): AlertEvent[] {
+    const d = date ?? 'now'
+    const rows = this.db.prepare(
+      "SELECT * FROM alert_events WHERE date(triggered_at) = date(?, 'localtime') ORDER BY id DESC LIMIT 200",
+    ).all(d) as Row[]
+    return rows.map((r) => ({
+      id: Number(r.id), secId: String(r.sec_id), secName: String(r.sec_name), ruleId: String(r.rule_id),
+      direction: String(r.direction) as 'up' | 'down', value: Number(r.value),
+      message: String(r.message), triggeredAt: String(r.triggered_at),
+    }))
+  }
+
+  resetCooldown(secId: string): void {
+    this.db.prepare(
+      "DELETE FROM alert_events WHERE sec_id = ? AND date(triggered_at) = date('now','localtime')",
+    ).run(secId)
+  }
+
+  /* ---------- settings ---------- */
+
+  getSettings(): AppSettings {
+    const rows = this.db.prepare('SELECT key, value FROM settings').all() as Row[]
+    const stored: Record<string, unknown> = {}
+    for (const r of rows) {
+      try { stored[String(r.key)] = JSON.parse(String(r.value)) } catch { stored[String(r.key)] = String(r.value) }
+    }
+    return { ...DEFAULT_SETTINGS, ...stored } as AppSettings
+  }
+
+  setSetting(key: string, value: unknown): void {
+    this.db.prepare(
+      'INSERT INTO settings (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+    ).run(key, JSON.stringify(value))
+  }
+}
