@@ -20,7 +20,7 @@ function skinsDevServer(): Plugin {
     '.json': 'application/json', '.gif': 'image/gif',
   }
   return {
-    name: 'petticker-skins-dev',
+    name: 'pandadingding-skins-dev',
     apply: 'serve',
     configureServer(server) {
       server.middlewares.use('/skins', (req, res, next) => {

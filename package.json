@@ -1,8 +1,8 @@
 {
-  "name": "petticker",
+  "name": "pandadingding",
   "private": true,
   "version": "0.1.0",
-  "description": "桌宠股票基金监控 - PetTicker",
+  "description": "熊猫盯盯 - 桌宠股票基金监控",
   "main": "apps/main/dist/index.cjs",
   "packageManager": "pnpm@11.28.5",
   "type": "module",
@@ -13,6 +13,18 @@
     "skin": "python scripts/gen_skin.py",
     "test": "node --experimental-strip-types --test packages/shared/tests/*.test.ts apps/main/src/data-source/*.test.ts apps/main/src/alert/*.test.ts apps/main/src/pet/*.test.ts",
     "typecheck": "pnpm -r typecheck",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "dist": "node scripts/build.mjs && electron-builder --config electron-builder.yml",
+    "dist:win": "node scripts/build.mjs && electron-builder --win --config electron-builder.yml",
+    "dist:mac": "node scripts/build.mjs && electron-builder --mac --config electron-builder.yml",
+    "dist:linux": "node scripts/build.mjs && electron-builder --linux --config electron-builder.yml",
+    "release": "node scripts/build.mjs && electron-builder --config electron-builder.yml --publish always"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.2.0"
+  },
+  "devDependencies": {
+    "electron": "^38.2.0",
+    "electron-builder": "^26.0.12"
   }
 }

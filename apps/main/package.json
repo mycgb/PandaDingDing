@@ -1,5 +1,5 @@
 {
-  "name": "@petticker/main",
+  "name": "@pandadingding/main",
   "private": true,
   "version": "0.1.0",
   "main": "dist/index.cjs",

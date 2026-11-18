@@ -13,16 +13,29 @@ import { suggest, BUILTIN_ETF } from './search/suggest.ts'
 import { setPetWindow } from './windows/petWindowAccess.ts'
 import { KlineService, bindFetch as bindKline } from './kline/KlineService.ts'
 import { IPC, phaseOf, DEFAULT_SETTINGS, type AppSettings, type QuoteSnapshot, type WatchItem, type PetState } from '../../../packages/shared/src/index.ts'
+import { pathToFileURL } from 'node:url'
 
 const IS_DEV = !!process.env.PETTICKER_DEV
 let ROOT = ''
+/** 主进程产物目录（preload/migrations 所在处）：dev 为 apps/main，打包后为 app.asar/apps/main */
+let APP_DIR = ''
 let RENDERER_URL = ''
 function computePaths(): void {
-  // 入口 = apps/main/dist/index.cjs → appPath = apps/main → 工程根 = apps 的上级
-  ROOT = path.resolve(app.getAppPath(), '..', '..')
-  RENDERER_URL = process.env.PETTICKER_RENDERER_URL
-    ?? (IS_DEV ? 'http://127.0.0.1:5173' : `file://${ROOT}/apps/renderer/dist/index.html`)
-  log('ROOT =', ROOT)
+  const appPath = app.getAppPath()
+  if (app.isPackaged) {
+    // appPath = <install>/resources/app.asar；静态资源由 extraResources 放到 <install>/resources
+    APP_DIR = path.join(appPath, 'apps', 'main')
+    ROOT = path.dirname(process.resourcesPath)
+    RENDERER_URL = process.env.PETTICKER_RENDERER_URL
+      ?? pathToFileURL(path.join(appPath, 'apps/renderer/dist/index.html')).href
+  } else {
+    // 入口 = apps/main/dist/index.cjs → appPath = apps/main → 工程根 = apps 的上级
+    APP_DIR = appPath
+    ROOT = path.resolve(appPath, '..', '..')
+    RENDERER_URL = process.env.PETTICKER_RENDERER_URL
+      ?? (IS_DEV ? 'http://127.0.0.1:5173' : pathToFileURL(path.join(ROOT, 'apps/renderer/dist/index.html')).href)
+  }
+  log('ROOT =', ROOT, 'APP_DIR =', APP_DIR)
 }
 
 // 静态资源目录（皮肤/图标）
@@ -131,8 +144,8 @@ function start(): void {
   bindKline(doFetch)
 
   store = new DataStore(
-    path.join(app.getPath('userData'), 'petticker.db'),
-    path.join(app.getAppPath(), 'migrations'),
+    path.join(app.getPath('userData'), 'pandadingding.db'),
+    path.join(APP_DIR, 'migrations'),
   )
   settings = store.getSettings()
   // 历史遗留：早期版本曾把 clickThrough=true 写入数据库，导致桌宠无法拖动/双击。
@@ -269,7 +282,7 @@ function createPetWindow(): void {
     backgroundColor: '#00000000',
     skipTaskbar: true, resizable: false,
     webPreferences: {
-      preload: path.join(app.getAppPath(), 'dist/preload.cjs'),
+      preload: path.join(APP_DIR, 'dist/preload.cjs'),
       contextIsolation: true, nodeIntegration: false, sandbox: false,
       // 关键：桌宠窗口常驻桌面，被其他窗口大面积遮挡时会触发 Chromium 后台节流，
       // rAF 被降到约 1Hz，动画看起来像"卡住/不动"。关闭后动画持续按帧率播放。
@@ -311,9 +324,9 @@ function createPanelWindow(): void {
     // 窗口原生背景跟随主题，避免无边框窗口边缘与内容色不一致
     backgroundColor: settings.theme === 'dark' ? '#1c1c1e' : '#f6f6f8',
     roundedCorners: true,
-    title: 'PetTicker 管理面板',
+    title: 'PandaDingDing 管理面板',
     webPreferences: {
-      preload: path.join(app.getAppPath(), 'dist/preload.cjs'),
+      preload: path.join(APP_DIR, 'dist/preload.cjs'),
       contextIsolation: true, nodeIntegration: false, sandbox: false,
     },
   })
@@ -375,7 +388,7 @@ function refreshTray(): void {
     { label: '退出', click: () => app.quit() },
   )
   tray.setContextMenu(Menu.buildFromTemplate(items))
-  tray.setToolTip(ct ? 'PetTicker（点击穿透中 · 托盘可恢复）' : 'PetTicker 股票桌宠')
+  tray.setToolTip(ct ? 'PandaDingDing（点击穿透中 · 托盘可恢复）' : 'PandaDingDing 股票桌宠')
   // 穿透态下左键单击托盘 = 快速恢复交互；否则打开面板
   tray.on('click', () => {
     if (settings.clickThrough) { setClickThrough(false); refreshTray() }

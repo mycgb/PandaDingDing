@@ -9,7 +9,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo Starting PetTicker (dev mode)...
+echo Starting PandaDingDing (dev mode)...
 node scripts\dev.mjs
 if errorlevel 1 (
   echo.

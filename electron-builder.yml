@@ -1,48 +1,81 @@
-# electron-builder 打包配置（结构参考；本机未完成端到端验证）
-#
-# 用法：pnpm build && npx electron-builder --win --config electron-builder.yml
+# electron-builder 多平台打包配置
+# 本地：pnpm dist（当前平台）；CI：.github/workflows/release.yml（Win/macOS/Linux）
 #
 # 注意：
-# 1) 本项目是 pnpm monorepo，better-sqlite3 是原生模块，必须针对 Electron ABI 预编译
-#    （见 README「安装」小节），打包时不能再被 rebuild 成 Node ABI。
-# 2) asar 打包后 app.getAppPath() 指向 asar 内部，主进程按 ROOT = appPath/../.. 定位
-#    resources；因此 resources 必须随包一起放进 asar（用 files 收集），或改为 extraResources
-#    并同步调整 apps/main/src/index.ts 里的 computePaths()。
-appId: com.petticker.app
-productName: PetTicker
-copyright: PetTicker
+# 1) pnpm monorepo + better-sqlite3 原生模块，依赖声明在根 package.json，
+#    打包时由 electron-builder 针对目标平台的 Electron ABI 重建/下载 prebuild。
+# 2) 代码路径：打包后 appPath = <install>/resources/app.asar，主进程产物在
+#    app.asar/apps/main；resources 走 extraResources 落到 <install>/resources，
+#    与 apps/main/src/index.ts 的 computePaths() 对应。
+appId: com.pandadingding.app
+productName: PandaDingDing
+copyright: PandaDingDing
 
 directories:
   output: release
   buildResources: resources
 
-# 以根 package.json 为入口，但实际主进程产物在 apps/main/dist/index.cjs
-# （root package.json 的 "main" 已指向该文件，且 type=module 不影响 .cjs）
 files:
   - package.json
   - apps/main/dist/**
   - apps/main/migrations/**
   - apps/renderer/dist/**
-  - resources/**
-  - packages/shared/src/**
   - '!**/node_modules/**/{test,__tests__,tests,example,examples,docs}/**'
   - '!**/*.map'
+
+# 皮肤/图标等静态资源放在 asar 外，主进程用 fs/net.fetch 直接读取
+extraResources:
+  - from: resources
+    to: .
 
 asar: true
 asarUnpack:
   - node_modules/better-sqlite3/**
 
 win:
+  icon: resources/icons/icon.png
   target:
     - target: nsis
       arch: [x64]
     - target: portable
       arch: [x64]
-  icon: resources/icons/tray.png
+  artifactName: ${productName}-${version}-win-${arch}-${target}.${ext}
 
 nsis:
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
-  shortcutName: PetTicker
+  shortcutName: PandaDingDing
+
+mac:
+  icon: resources/icons/icon.png
+  category: public.app-category.finance
+  # 无签名证书：关闭签名/公证，产物可直接运行（首次启动需在系统设置里放行）
+  identity: null
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  notarize: false
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+    - target: zip
+      arch: [x64, arm64]
+  artifactName: ${productName}-${version}-mac-${arch}.${ext}
+
+linux:
+  icon: resources/icons/icon.png
+  category: Office;Finance
+  maintainer: mycgb <mycgb@foxmail.com>
+  synopsis: 桌宠股票基金监控
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+  artifactName: ${productName}-${version}-linux-${arch}.${ext}
+
+publish:
+  provider: github
+  owner: mycgb
+  repo: PandaDingDing

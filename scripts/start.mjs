@@ -35,7 +35,7 @@ delete env.PETTICKER_DEV
 
 // 桌宠日志写入独立文件（不依赖父进程管道）
 const logFile = process.env.PETTICKER_LOG_FILE
-  ?? join(homedir(), 'AppData/Roaming/petticker/logs/main.log')
+  ?? join(homedir(), 'AppData/Roaming/pandadingding/logs/main.log')
 if (process.env.PETTICKER_LOG_FILE !== '-') {
   try {
     mkdirSync(dirname(logFile), { recursive: true })
@@ -53,4 +53,4 @@ const el = spawn(ELECTRON, ['.'], {
 el.on('exit', (c) => process.exit(c ?? 0))
 el.on('error', (e) => { console.error('[start] 启动失败:', e.message); process.exit(1) })
 
-console.log(`[start] PetTicker 已启动（日志: ${logFile}）`)
+console.log(`[start] PandaDingDing 已启动（日志: ${logFile}）`)

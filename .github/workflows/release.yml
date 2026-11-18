@@ -1,0 +1,179 @@
+# 多平台打包发布：win / mac / linux
+# 触发方式：
+#   1. 推送标签 v*（如 git tag v0.1.0 && git push origin v0.1.0）→ 自动构建 + 创建 GitHub Release draft
+#   2. Actions 面板手动触发（勾选需要构建的平台）→ 仅上传产物，不建 Release
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      platforms:
+        description: '要构建的平台'
+        type: choice
+        required: true
+        default: 'all'
+        options:
+          - all
+          - win
+          - mac
+          - linux
+
+permissions:
+  contents: write   # 允许创建 Release 并上传 assets
+
+jobs:
+  meta:
+    name: Metadata
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      platforms: ${{ steps.meta.outputs.platforms }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: derive version & platforms
+        id: meta
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          INPUTS="${{ github.event.inputs.platforms }}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "$INPUTS" != "all" ]; then
+            case "$INPUTS" in
+              win)  PLATFORMS='["windows"]' ;;
+              mac)  PLATFORMS='["mac"]' ;;
+              linux) PLATFORMS='["linux"]' ;;
+              *)    PLATFORMS='["windows","mac","linux"]' ;;
+            esac
+          else
+            PLATFORMS='["windows","mac","linux"]'
+          fi
+          echo "platforms=${PLATFORMS}" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build (${{ matrix.os }}-${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+            arch: x64
+          - os: macos-latest
+            platform: mac
+            arch: arm64
+          - os: macos-13
+            platform: mac
+            arch: x64
+          - os: ubuntu-latest
+            platform: linux
+            arch: x64
+    needs: meta
+    if: contains(fromJSON(needs.meta.outputs.platforms), matrix.platform)
+    env:
+      NODE_ENV: production
+      CSC_IDENTITY_AUTO_DISCOVERY: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: install deps
+        run: pnpm install --frozen-lockfile
+
+      - name: build source
+        run: pnpm build
+
+      - name: rebuild native modules for target Electron ABI
+        run: pnpx electron-rebuild -f -w better-sqlite3 -a ${{ matrix.arch }}
+        shell: bash
+        env:
+          ELECTRON_ARCH: ${{ matrix.arch }}
+          ELECTRON_VERSION: ${{ matrix.arch == 'x64' && 'x64' || 'arm64' }}
+
+      - name: package with electron-builder
+        run: npx electron-builder --${{ matrix.platform }} --${{ matrix.arch }} --config electron-builder.yml --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+          NODE_ENV: production
+
+      - name: collect artifacts (flatten by platform+arch)
+        run: |
+          OUT="release-${{ matrix.platform }}-${{ matrix.arch }}"
+          mkdir -p "$OUT"
+          case "${{ matrix.platform }}" in
+            windows)
+              cp release/win-unpacked/*.exe "$OUT/" 2>/dev/null || true
+              ;;
+            mac)
+              # dmg/zip already at release/; app dir structure varies per arch
+              find release -maxdepth 2 -type f \( -name "*.dmg" -o -name "*.zip" \) -exec cp {} "$OUT/" \;
+              ;;
+            linux)
+              find release -maxdepth 2 -type f \( -name "*.AppImage" -o -name "*.deb" \) -exec cp {} "$OUT/" \;
+              ;;
+          esac
+          ls -la "$OUT"/
+        shell: bash
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: panda-dingding-${{ matrix.platform }}-${{ matrix.arch }}
+          path: release-${{ matrix.platform }}-${{ matrix.arch }}/
+          retention-days: 7
+
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [meta, build]
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/checkout@v4
+      - name: download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: panda-dingding-*
+          path: dist-artifacts/
+          merge-multiple: true
+
+      - name: build release body
+        run: |
+          {
+            echo "**版本号:** ${{ needs.meta.outputs.version }}"
+            echo "**构建时间:** $(date -u +'%Y-%m-%d %H:%M UTC')"
+            echo "**提交:** ${{ github.sha }}"
+            echo ""
+            echo "## 下载"
+            for f in dist-artifacts/*; do
+              [ -f "$f" ] || continue
+              name=$(basename "$f")
+              size_mb=$(awk "BEGIN { printf \"%.2f\", $(stat -c%s "$f")/1048576 }")
+              case "$name" in
+                *setup.exe*) plat="Windows (NSIS 安装版)" ;;
+                *portable.exe*) plat="Windows (Portable 便携版)" ;;
+                *.AppImage) plat="Linux (AppImage)" ;;
+                *.deb) plat="Linux (Debian/Ubuntu)" ;;
+                *.dmg) plat="macOS (DMG)" ;;
+                *.zip) plat="macOS (ZIP 压缩包)" ;;
+                *) plat="—" ;;
+              esac
+              echo "- [$plat](https://github.com/mycgb/PandaDingDing/releases/download/${{ github.ref_name }}/$name) — ${size_mb} MB"
+            done
+          } > release-body.md
+          cat release-body.md
+
+      - name: create draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ needs.meta.outputs.version }}
+          body_path: release-body.md
+          draft: true
+          prerelease: false
+          files: |
+            dist-artifacts/*

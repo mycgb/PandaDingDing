@@ -1,5 +1,5 @@
 {
-  "name": "@petticker/renderer",
+  "name": "@pandadingding/renderer",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -9,7 +9,7 @@
     "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {
-    "@petticker/shared": "workspace:*",
+    "@pandadingding/shared": "workspace:*",
     "echarts": "^6.1.0"
   },
   "devDependencies": {
