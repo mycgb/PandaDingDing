@@ -373,6 +373,11 @@ const DISCIPLINE_RULE_ID = 'discipline-chase'
  * 用规则系统实现而不是另写判定 —— 冷却、去重、免打扰、提醒历史全部复用，
  * 用户也能在规则页看到并自行微调阈值。
  */
+/**
+ * 同步「防追高」纪律规则。
+ * 设置页只负责阈值（0 = 关闭 → 删规则），启用/停用状态归提醒规则页所有：
+ * 每次同步都沿用已有规则的 enabled，否则用户停用后重启又被悄悄打开。
+ */
 function syncDisciplineRule(): void {
   const pct = settings.chaseHighPct
   try {
@@ -380,6 +385,7 @@ function syncDisciplineRule(): void {
       store.deleteRule(DISCIPLINE_RULE_ID)
       return
     }
+    const existing = store.listRules().find((r) => r.id === DISCIPLINE_RULE_ID)
     store.upsertRule({
       id: DISCIPLINE_RULE_ID,
       scope: 'global',
@@ -387,7 +393,7 @@ function syncDisciplineRule(): void {
       op: 'above',
       threshold: Math.min(20, Math.max(0.1, pct)),
       cooldown: 'oncePerDay',
-      enabled: true,
+      enabled: existing ? existing.enabled : true,
     })
   } catch (e) { log('同步防追高规则失败:', e) }
 }

@@ -74,61 +74,73 @@
       <button class="primary" @click="addTimeAlert">＋ 添加</button>
     </div>
 
-    <div v-if="editing" class="editor">
-      <h3>{{ isNew ? '新建规则' : '编辑规则' }}</h3>
-      <form @submit.prevent="save">
-        <label>范围
-          <select v-model="editing.scope">
-            <option value="global">全局（全部自选）</option>
-            <option value="security">单只标的</option>
-          </select>
-        </label>
-        <label v-if="editing.scope === 'security'">
-          标的
-          <select v-model="editing.secId">
-            <option v-for="w in watchlist" :key="w.secId" :value="w.secId">{{ w.name }} ({{ w.code }})</option>
-          </select>
-        </label>
-        <label>指标
-          <select v-model="editing.metric">
-            <option value="changePct">涨跌幅 %</option>
-            <option value="price">价格（元）</option>
-            <option value="volumeMultiple">成交量倍数（相对近5日均量）</option>
-            <option value="streakUp">连涨天数</option>
-            <option value="streakDown">连跌天数</option>
-            <option value="speedPct">3 分钟急涨急跌 %（异动雷达）</option>
-            <option value="atLimit">触及涨停 / 跌停</option>
-          </select>
-        </label>
-        <label>条件
-          <select v-model="editing.op" :disabled="editing.metric === 'atLimit'">
-            <option value="absAbove">绝对值达到 ±</option>
-            <option value="above">高于 / 达到</option>
-            <option value="below">低于</option>
-          </select>
-        </label>
-        <label>阈值{{ thresholdUnitHint }}
-          <input v-if="editing.metric !== 'atLimit'" v-model.number="editing.threshold" type="number" step="0.1" min="0.1"
-                 :max="editing.metric === 'changePct' || editing.metric === 'speedPct' ? 20 : 100" required />
-          <input v-else disabled value="无需填写" />
-        </label>
-        <label>冷却
-          <select v-model="editing.cooldown">
-            <option value="oncePerDay">当日同向一次</option>
-            <option value="minutes:30">30 分钟</option>
-          </select>
-        </label>
-        <div class="btns">
-          <button class="primary" type="submit">保存</button>
-          <button type="button" @click="editing = null; isNew = false">取消</button>
+    <!-- 编辑规则：浮层弹窗。此前是渲染在页面底部的内联卡片，容易被当成页面内容、
+         点「编辑」后还要往下滚才看得到，改弹窗后动作和反馈在同一处。 -->
+    <transition name="modal">
+      <div v-if="editing" class="modal-mask" @click.self="closeEditor" @wheel.prevent.self>
+        <div class="modal" role="dialog" aria-modal="true" :aria-label="isNew ? '新建规则' : '编辑规则'">
+          <div class="modal-head">
+            <h3>{{ isNew ? '新建规则' : '编辑规则' }}</h3>
+            <button class="icon-btn" type="button" title="关闭（Esc）" @click="closeEditor">✕</button>
+          </div>
+          <form ref="formEl" class="modal-body" @submit.prevent="save">
+            <label>范围
+              <select v-model="editing.scope">
+                <option value="global">全局（全部自选）</option>
+                <option value="security">单只标的</option>
+              </select>
+            </label>
+            <label v-if="editing.scope === 'security'">
+              标的
+              <select v-model="editing.secId">
+                <option v-for="w in watchlist" :key="w.secId" :value="w.secId">{{ w.name }} ({{ w.code }})</option>
+              </select>
+            </label>
+            <label>指标
+              <select v-model="editing.metric">
+                <option value="changePct">涨跌幅 %</option>
+                <option value="price">价格（元）</option>
+                <option value="volumeMultiple">成交量倍数（相对近5日均量）</option>
+                <option value="streakUp">连涨天数</option>
+                <option value="streakDown">连跌天数</option>
+                <option value="speedPct">3 分钟急涨急跌 %（异动雷达）</option>
+                <option value="atLimit">触及涨停 / 跌停</option>
+              </select>
+            </label>
+            <label>条件
+              <select v-model="editing.op" :disabled="editing.metric === 'atLimit'">
+                <option value="absAbove">绝对值达到 ±</option>
+                <option value="above">高于 / 达到</option>
+                <option value="below">低于</option>
+              </select>
+            </label>
+            <label>阈值{{ thresholdUnitHint }}
+              <input v-if="editing.metric !== 'atLimit'" v-model.number="editing.threshold" type="number" step="0.1" min="0.1"
+                     :max="editing.metric === 'changePct' || editing.metric === 'speedPct' ? 20 : 100" required />
+              <input v-else disabled value="无需填写" />
+            </label>
+            <label>冷却
+              <select v-model="editing.cooldown">
+                <option value="oncePerDay">当日同向一次</option>
+                <option value="minutes:30">30 分钟</option>
+              </select>
+            </label>
+            <p v-if="editing.id === 'discipline-chase'" class="modal-note">
+              这是「设置 → 交易纪律」自动同步的防追高规则：改阈值会写回设置页，停用后重启不会被重新打开；把阈值设成 0 或在这里删除即等于关闭该纪律。
+            </p>
+          </form>
+          <div class="modal-foot">
+            <button type="button" @click="closeEditor">取消</button>
+            <button class="primary" type="button" @click="save">保存</button>
+          </div>
         </div>
-      </form>
-    </div>
+      </div>
+    </transition>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { api } from '../../api'
 import type { AlertRule, WatchItem, TimeAlert } from '@shared/index'
 
@@ -136,9 +148,13 @@ const rules = ref<AlertRule[]>([])
 const watchlist = ref<WatchItem[]>([])
 const editing = ref<Partial<AlertRule> | null>(null)
 const isNew = ref(false)
+const formEl = ref<HTMLFormElement | null>(null)
 const timeAlerts = ref<TimeAlert[]>([])
 const newTime = ref('09:25')
 const newLabel = ref('')
+
+/** 防追高这条是「设置 → 交易纪律」同步生成的，改它要回写设置，否则重启后会与设置不一致 */
+const DISCIPLINE_ID = 'discipline-chase'
 
 /** 阈值输入框的单位后缀 */
 const thresholdUnitHint = computed(() => {
@@ -193,13 +209,37 @@ function newRule(): void {
     scope: 'global', metric: 'changePct', op: 'absAbove',
     threshold: 3, cooldown: 'oncePerDay', enabled: true,
   }
+  focusEditor()
 }
 
 /** 编辑现有规则：加载其字段到表单 */
 function editRule(r: AlertRule): void {
   isNew.value = false
   editing.value = { ...r }
+  focusEditor()
 }
+
+/** 弹窗打开后把焦点放进第一个可操作控件，方便纯键盘改完回车保存 */
+function focusEditor(): void {
+  void nextTick(() => {
+    const el = formEl.value?.querySelector<HTMLElement>('select, input')
+    el?.focus()
+  })
+}
+
+function closeEditor(): void {
+  editing.value = null
+  isNew.value = false
+}
+
+function onKeydown(e: KeyboardEvent): void {
+  if (e.key === 'Escape' && editing.value) {
+    e.preventDefault()
+    closeEditor()
+  }
+}
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 async function save(): Promise<void> {
   if (!editing.value) return
@@ -210,15 +250,22 @@ async function save(): Promise<void> {
     if (!plain.id) plain.id = `rule-${Date.now()}`
     // 触及涨跌停是开关型信号：不读阈值，但 DB/IPC 要求 >= 0.1，统一存 1
     if (plain.metric === 'atLimit') { plain.threshold = 1; plain.op = 'above' }
+    // 防追高规则与「设置 → 交易纪律」是同一份数据：改阈值要写回设置，
+    // 否则主进程启动时会用设置里的旧值把它覆盖掉。
+    if (plain.id === DISCIPLINE_ID) {
+      await api.settingsSet({ chaseHighPct: plain.metric === 'changePct' ? Number(plain.threshold) : 0 })
+    }
     await api.rulesUpsert(plain)
     rules.value = await api.rulesList()
-    editing.value = null
+    closeEditor()
   } catch (e) {
     alert('保存失败：' + (e as Error).message)
   }
 }
 
 async function remove(id: string): Promise<void> {
+  // 删掉防追高规则等同于关闭该纪律，否则下次启动会被同步逻辑重新建出来
+  if (id === DISCIPLINE_ID) await api.settingsSet({ chaseHighPct: 0 })
   await api.rulesDelete(id)
   rules.value = rules.value.filter((r) => r.id !== id)
 }
@@ -277,18 +324,56 @@ button.primary:hover { background: var(--accent-hover); }
 .rules-table tr:last-child td { border-bottom: none; }
 .rules-table tbody tr:hover { background: var(--hover); }
 .mono { font-family: 'SF Mono', Consolas, monospace; }
-.editor {
-  margin-top: 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
-  padding: 18px; max-width: 460px; box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+/* ---------- 规则编辑弹窗 ---------- */
+.modal-mask {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, .32);
 }
-.editor h3 { font-size: 14px; font-weight: 600; margin-bottom: 14px; }
-.editor form { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.editor label { display: flex; flex-direction: column; gap: 5px; font-size: 11px; color: var(--text-secondary); font-weight: 600; }
-.editor select, .editor input {
-  padding: 6px 9px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 13px;
+.modal {
+  width: 520px; max-width: 100%; max-height: 100%;
+  display: flex; flex-direction: column;
+  background: var(--surface); border: 1px solid var(--border-soft); border-radius: 14px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .28);
+  overflow: hidden;
+  animation: modal-pop .16s ease-out;
 }
-.editor select:focus, .editor input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(11,100,214,0.15); }
-.btns { grid-column: 1 / -1; display: flex; gap: 8px; margin-top: 8px; }
+@keyframes modal-pop {
+  from { opacity: 0; transform: translateY(8px) scale(.985); }
+  to { opacity: 1; transform: none; }
+}
+.modal-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 18px; border-bottom: 1px solid var(--border-soft);
+}
+.modal-head h3 { font-size: 14px; font-weight: 600; color: var(--text); margin: 0; }
+.icon-btn {
+  border: none; background: transparent; color: var(--text-tertiary);
+  font-size: 13px; line-height: 1; padding: 5px 7px; border-radius: 6px; cursor: pointer;
+}
+.icon-btn:hover { background: var(--hover); color: var(--text); }
+.modal-body {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+  padding: 18px; overflow: auto;
+}
+.modal-body label { display: flex; flex-direction: column; gap: 5px; font-size: 11px; color: var(--text-secondary); font-weight: 600; }
+.modal-body select, .modal-body input {
+  padding: 6px 9px; border-radius: 6px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text); font-size: 13px; min-width: 0;
+}
+.modal-body select:focus, .modal-body input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(11,100,214,0.15); }
+.modal-note {
+  grid-column: 1 / -1; margin: 2px 0 0; padding: 9px 11px;
+  font-size: 11px; line-height: 1.65; color: var(--text-secondary);
+  background: var(--bg); border-radius: 8px;
+}
+.modal-foot {
+  display: flex; justify-content: flex-end; gap: 8px;
+  padding: 12px 18px; border-top: 1px solid var(--border-soft); background: var(--surface);
+}
+.modal-enter-active, .modal-leave-active { transition: opacity .14s ease; }
+.modal-enter-from, .modal-leave-to { opacity: 0; }
 button {
   background: var(--surface); border: 1px solid var(--border); color: var(--text); border-radius: 6px;
   padding: 6px 14px; cursor: pointer; font-size: 13px;
