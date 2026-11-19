@@ -13,7 +13,7 @@
           <span>+</span>
         </button>
       </div>
-      <div class="titlebar-label">PandaDingDing</div>
+      <div class="titlebar-label">熊猫盯盯</div>
       <div class="titlebar-spacer" />
     </header>
 

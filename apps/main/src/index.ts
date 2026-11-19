@@ -480,7 +480,7 @@ function createPanelWindow(): void {
     // 窗口原生背景跟随主题，避免无边框窗口边缘与内容色不一致
     backgroundColor: settings.theme === 'dark' ? '#1c1c1e' : '#f6f6f8',
     roundedCorners: true,
-    title: 'PandaDingDing 管理面板',
+    title: '熊猫盯盯 · 管理面板',
     webPreferences: {
       preload: path.join(APP_DIR, 'dist/preload.cjs'),
       contextIsolation: true, nodeIntegration: false, sandbox: false,
