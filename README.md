@@ -148,7 +148,7 @@ pnpm test      # 5 组单元测试：交易日历、字段解析、数值防御�
 ```jsonc
 // resources/skins/<皮肤名>/manifest.json
 {
-  "name": "熊猫 mycgb",
+  "name": "可爱的小熊",
   "fps": 12,                          // 默认帧率（动作可用 fps 覆盖）
   "anchor": [0.5, 1.0],
   "display": { "width": 244, "bottom": 8 },   // 画布中的展示宽、脚底到画布底的距离
@@ -166,6 +166,7 @@ pnpm test      # 5 组单元测试：交易日历、字段解析、数值防御�
 - **`from`**：复用其他动作的帧池，不重复占磁盘/内存（GIF 单条动画转皮肤时全动作复用 `idle`，情绪靠播放速度表达）。
 - **`start`**：从帧池第几帧开始（1 基），用于截取片段，如 panic 取"站立招手"高潮段。
 - **`display`**：`width` 指定画布内展示宽度（等比缩放），`bottom` 指定脚底距画布底距离；缺省时按长边 200px 自适应。
+- **`hidden`**：设为 `true` 则不在「桌宠皮肤」下拉里出现（素材与加载能力都保留，适合藏起试验版本/占位素材）；全部皮肤都被隐藏时下拉会退化为显示全部，不会变空。
 
 ### 用 GIF 生成皮肤
 
@@ -175,17 +176,17 @@ python scripts/gif_to_skin.py <input.gif> <皮肤名> [--long-side 280]
 
 脚本会按全片 alpha 联合包围盒裁剪（固定裁剪框，避免角色抖动）、缩放、生成 `manifest.json` 与托盘图标。情绪档位映射：涨 → 加速播放，跌 → 减速播放，提醒 → 高潮段高速循环，盘后/断网 → 静止帧。
 
-当前默认皮肤为 `panda-shake-v4`（源自 `gif/panda-mycgb-shake-rest-v4-transparent.gif`，47 帧，摇头+招手动画，480×480 源图转换）。桌宠窗口 160×210，精灵显示宽度 140px（约为原始尺寸的一半），气泡同步缩小。
+当前默认皮肤为 `panda-shake-v4`（下拉里显示为「可爱的小熊」，源自 `gif/panda-mycgb-shake-rest-v4-transparent.gif`，47 帧，摇头+招手动画，480×480 源图转换）。桌宠窗口 160×210，精灵显示宽度 140px（约为原始尺寸的一半），气泡同步缩小。
 
-可用皮肤五套（都在 `resources/skins/` 下，切换方式：管理面板 → 设置 → 外观 → **桌宠皮肤** 下拉，切换即时生效）：
+`resources/skins/` 下共五套皮肤，切换方式：管理面板 → 设置 → 外观 → **桌宠皮肤** 下拉，切换即时生效。manifest 里标了 `"hidden": true` 的皮肤**不出现在下拉里**（素材仍在磁盘上，`skin` 设置指向它照样能加载），目前只保留 `panda-shake-v4` 可见；想恢复某一套，删掉它 manifest 里的 `hidden` 即可：
 
-| 皮肤 | 来源 | 特点 |
-| --- | --- | --- |
-| `panda-shake-v4` | `gif/panda-mycgb-shake-rest-v4-transparent.gif` | 默认；摇头+招手，47 帧，480 源图 |
-| `panda-shake-rest` | `gif/panda-mycgb-shake-rest-v2-transparent.gif` | 摇头+招手，56 帧，连贯流畅 |
-| `panda-wave-blink` | `gif/panda-mycgb-wave-blink-transparent.gif` | 挥手+眨眼，106 帧 |
-| `panda-mycgb` | `panda-mycgb-stand-sit-transparent.gif` | 早期版本；坐站切换+招手，124 帧 |
-| `mascot-cat` | 占位像素猫 | 最早的内置皮肤 |
+| 皮肤 | 来源 | 特点 | 下拉 |
+| --- | --- | --- | --- |
+| `panda-shake-v4` | `gif/panda-mycgb-shake-rest-v4-transparent.gif` | 默认；摇头+招手，47 帧，480 源图 | 显示「可爱的小熊」 |
+| `panda-shake-rest` | `gif/panda-mycgb-shake-rest-v2-transparent.gif` | 摇头+招手，56 帧，连贯流畅 | 隐藏 |
+| `panda-wave-blink` | `gif/panda-mycgb-wave-blink-transparent.gif` | 挥手+眨眼，106 帧 | 隐藏 |
+| `panda-mycgb` | `panda-mycgb-stand-sit-transparent.gif` | 早期版本；坐站切换+招手，124 帧 | 隐藏 |
+| `mascot-cat` | 占位像素猫 | 最早的内置皮肤 | 隐藏 |
 
 默认皮肤升级机制：使用历史默认值（`panda-mycgb` / `panda-wave-blink` / `panda-shake-rest`）且未主动切换过的用户，启动时会自动升级到新默认值；主动选过其他皮肤的用户不受影响。
 
