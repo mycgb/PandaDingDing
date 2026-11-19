@@ -110,7 +110,28 @@ jobs:
 
       # electron-builder 默认 npmRebuild=true，会自动用目标 Electron ABI 重建 native 模块，
       # 无需额外 electron-rebuild（该包也不在依赖里，pnpx 临时拉取不稳定）。
-      - name: package with electron-builder
+      # Windows 的 nsis / portable 都是 .exe，而 electron-builder 26 的 artifactName 不支持
+      # ${target} 宏，target 数组元素也不能带独立 artifactName。故分两次打包，各用一个
+      # --config.win.artifactName 覆盖出不同文件名，避免互相覆盖。其余平台一次即可。
+      - name: package with electron-builder (Windows)
+        if: matrix.platform == 'win'
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          NODE_ENV: production
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx electron-builder --win ${{ matrix.arch_flag }} --config electron-builder.yml \
+            --config.win.target=nsis \
+            --config.win.artifactName='${productName}-${version}-win-${arch}-nsis.${ext}' \
+            --publish never
+          npx electron-builder --win ${{ matrix.arch_flag }} --config electron-builder.yml \
+            --config.win.target=portable \
+            --config.win.artifactName='${productName}-${version}-win-${arch}-portable.${ext}' \
+            --publish never
+
+      - name: package with electron-builder (macOS / Linux)
+        if: matrix.platform != 'win'
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
           NODE_ENV: production

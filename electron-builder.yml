@@ -38,10 +38,14 @@ asarUnpack:
 # 这样 mac 的 x64 与 arm64 可在各自原生 runner 上分别构建原生模块（better-sqlite3）。
 win:
   icon: resources/icons/icon.png
+  # electron-builder 26 的 artifactName 不支持 ${target} 宏（报 macro target is not defined），
+  # 且 target 数组元素只能是字符串（不能带 per-target artifactName）。
+  # 故这里用不含 target 的统一模板；nsis / portable 分别在 CI 里通过 --config.win.artifactName
+  # 覆盖为带 nsis / portable 后缀的名字，避免两个 exe 同名互相覆盖。
   target:
-    - target: nsis
-    - target: portable
-  artifactName: ${productName}-${version}-win-${arch}-${target}.${ext}
+    - nsis
+    - portable
+  artifactName: ${productName}-${version}-win-${arch}.${ext}
 
 nsis:
   oneClick: false
