@@ -32,6 +32,10 @@ export interface IpcDeps {
     download(): Promise<import('../../../../packages/shared/src/index.ts').UpdateProgress>
     install(): void
   }
+  /** 今日新闻（东方财富快讯） */
+  news: {
+    getNews(force?: boolean): Promise<import('../../../../packages/shared/src/index.ts').NewsResult>
+  }
 }
 
 // secId = 市场号.代码。市场号含 A股0/1、港股116、美股105/106/107、场外基金150；
@@ -220,4 +224,6 @@ export function registerIpc(deps: IpcDeps): void {
   on(IPC.invoke.updateDownload, () => deps.update?.download())
   on(IPC.invoke.updateInstall, () => { deps.update?.install() })
   on(IPC.invoke.updateStatus, () => deps.update?.status() ?? { info: null, progress: null })
+  // 今日新闻：force 必须是布尔（防渲染层误传对象）；拉取失败由 service 兜底返回缓存
+  on(IPC.invoke.newsFetch, (_e, force?: unknown) => deps.news.getNews(force === true))
 }

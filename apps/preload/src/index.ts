@@ -48,6 +48,7 @@ const api = {
   updateDownload: invoke('updateDownload'),
   updateInstall: invoke('updateInstall'),
   updateStatus: invoke('updateStatus'),
+  newsFetch: invoke('newsFetch'),
   // push 订阅
   on: (channel: string, cb: (...args: unknown[]) => void) => {
     const valid = Object.values(IPC.push as Record<string, string>)

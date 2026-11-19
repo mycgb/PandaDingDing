@@ -46,6 +46,7 @@
       <main class="main">
         <WatchlistView v-if="tab === 'watchlist'" />
         <RulesView v-else-if="tab === 'rules'" />
+        <NewsView v-else-if="tab === 'news'" />
         <DataSourceView v-else-if="tab === 'datasource'" />
         <SettingsView v-else-if="tab === 'settings'" />
         <AboutView v-else />
@@ -58,6 +59,7 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import WatchlistView from './views/WatchlistView.vue'
 import RulesView from './views/RulesView.vue'
+import NewsView from './views/NewsView.vue'
 import DataSourceView from './views/DataSourceView.vue'
 import SettingsView from './views/SettingsView.vue'
 import AboutView from './views/AboutView.vue'
@@ -69,6 +71,7 @@ import type { DataSourceStatus } from '@shared/index'
 const tabs = [
   { key: 'watchlist', label: '自选列表', icon: '📈' },
   { key: 'rules', label: '提醒规则', icon: '🔔' },
+  { key: 'news', label: '今日新闻', icon: '📰' },
   { key: 'datasource', label: '数据源', icon: '🔌' },
   { key: 'settings', label: '设置', icon: '⚙️' },
   { key: 'about', label: '关于', icon: 'ℹ️' },

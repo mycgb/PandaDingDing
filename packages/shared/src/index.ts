@@ -156,6 +156,28 @@ export interface SystemNotice {
 /** 提示音种类：涨/跌/定时时点/发现新版本。与 resources/sounds/*.wav 一一对应。 */
 export type SoundKind = 'up' | 'down' | 'time' | 'update'
 
+/** 今日新闻一条（东方财富全球快讯，免费实时） */
+export interface NewsItem {
+  /** 快讯 code，同时用于拼详情页 URL */
+  id: string
+  title: string
+  summary: string
+  /** 展示时间，形如 2026-11-20 07:31:41 */
+  time: string
+  /** 关联个股 secId 列表（如 0.000672），可点开行情 */
+  stocks: string[]
+  /** 原文详情页 URL */
+  url: string
+}
+
+/** 新闻拉取结果。stale=true 表示抓取失败、返回的是上次缓存 */
+export interface NewsResult {
+  items: NewsItem[]
+  /** 成功抓取时间戳(ms)；从未成功时为 0 */
+  fetchedAt: number
+  stale: boolean
+}
+
 export interface SuggestItem {
   secId: string
   code: string
@@ -365,6 +387,7 @@ export const IPC = {
     updateDownload: 'update/download',
     updateInstall: 'update/install',
     updateStatus: 'update/status',
+    newsFetch: 'news/fetch',
   } as const,
   push: {
     quoteSnapshot: 'quote:snapshot',
@@ -421,6 +444,8 @@ export type IpcInvokeMap = {
   [IPC.invoke.updateInstall]: () => void
   /** 读取当前更新状态（设置页首次渲染用） */
   [IPC.invoke.updateStatus]: () => UpdateStatus
+  /** 拉取今日新闻（force=true 强制刷新，否则 5 分钟内走缓存） */
+  [IPC.invoke.newsFetch]: (force?: boolean) => NewsResult
 }
 
 /** 可用皮肤：目录名 + manifest 中显示名 */

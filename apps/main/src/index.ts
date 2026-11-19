@@ -18,6 +18,7 @@ import { suggest, BUILTIN_ETF, parseClipboardCode } from './search/suggest.ts'
 import { setPetWindow } from './windows/petWindowAccess.ts'
 import { KlineService, bindFetch as bindKline } from './kline/KlineService.ts'
 import { UpdateService } from './update/UpdateService.ts'
+import { NewsService } from './news/NewsService.ts'
 import { IPC, phaseOf, isTradingDay, MARKET_INDICES, calcPosition, dsSourceLabel, DEFAULT_SETTINGS, DEFAULT_REST_RANGES, type AppSettings, type QuoteSnapshot, type WatchItem, type PetState, type ClosingReport, type TimeAlert, type SoundKind } from '../../../packages/shared/src/index.ts'
 import { pathToFileURL } from 'node:url'
 
@@ -72,6 +73,8 @@ let lastAlertKind: 'up' | 'down' | 'time' | null = null
 /** 更新检查服务（GitHub Releases） */
 let updateSvc: UpdateService
 let updateTimer: NodeJS.Timeout | null = null
+/** 今日新闻服务（东方财富快讯） */
+let newsSvc: NewsService
 /** 桌宠窗口本次交互是否发生过位移（用于区分单击/拖拽） */
 let petMoved = false
 /** 老板键隐身态：只影响当前运行期，不写 petVisible，避免下次启动"桌宠不见了" */
@@ -265,6 +268,8 @@ function start(): void {
     },
   })
 
+  newsSvc = new NewsService(doFetch, log)
+
   registerIpc({
     store, dsm, scheduler,
     getSnapshots: () => latestSnapshots,
@@ -316,6 +321,9 @@ function start(): void {
       check: (silent) => updateSvc.check(silent),
       download: () => updateSvc.download(),
       install: () => updateSvc.install(),
+    },
+    news: {
+      getNews: (force) => newsSvc.getNews(force),
     },
   })
   // 启动时同步一次自启设置，防止系统侧被外部改动后与设置页不一致
