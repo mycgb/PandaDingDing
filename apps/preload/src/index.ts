@@ -43,6 +43,7 @@ const api = {
   closingReports: invoke('closingReports'),
   clipboardCheck: invoke('clipboardCheck'),
   openExternal: invoke('openExternal'),
+  appVersion: invoke('appVersion'),
   // push 订阅
   on: (channel: string, cb: (...args: unknown[]) => void) => {
     const valid = Object.values(IPC.push as Record<string, string>)

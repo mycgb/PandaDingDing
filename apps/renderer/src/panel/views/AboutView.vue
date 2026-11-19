@@ -26,8 +26,10 @@
       <h2>功能简介</h2>
       <ul>
         <li>实时关注自选股票 / 基金 / 港美股行情，按交易时段智能轮询</li>
-        <li>涨跌幅 / 价格阈值提醒，支持免打扰时段</li>
+        <li>涨跌幅 / 价格 / 成交量倍数 / 连涨连跌 / 3 分钟涨速 / 涨跌停 六类提醒规则</li>
         <li>桌宠情绪随组合涨跌变化，动画实时反馈</li>
+        <li>上班模式：老板键一键隐身、桌面指数温度条、定时时点提醒</li>
+        <li>持仓盈亏、异动雷达、盘后日报与交易纪律（防追高 / 每日提醒上限）</li>
         <li>K 线与分时图速览，多皮肤随心切换</li>
       </ul>
     </div>
@@ -52,10 +54,15 @@
 </template>
 
 <script setup lang="ts">
+import { ref, onMounted } from 'vue'
 import { api } from '../../api'
 
-// 版本号取自 package.json（构建时注入），无则显示占位
-const version = (import.meta.env?.VITE_APP_VERSION as string | undefined) || '0.1.0'
+// 版本号由主进程 app.getVersion() 提供（打包后读 app.asar 内的 package.json），
+// 避免像以前那样写死字符串、发版后关于页仍显示旧版本。
+const version = ref('0.2.0')
+onMounted(() => {
+  api.appVersion().then((v) => { if (v) version.value = v }).catch(() => { /* 读不到就用兜底 */ })
+})
 // 公众号二维码：放渲染层 public 目录，dev 由 vite 服务、打包随 dist 复制。
 // 相对路径以适配 file:// 与 http:// 两种加载方式（base='./'）。
 const qrImage = './wechat-official-account.jpg'

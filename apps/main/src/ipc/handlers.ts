@@ -202,4 +202,10 @@ export function registerIpc(deps: IpcDeps): void {
     const { shell } = require('electron') as typeof import('electron')
     shell.openExternal(parsedUrl)
   })
+  // 应用版本号：取打包后的 app.getVersion()（读的是 app.asar 内的 package.json），
+  // 开发态则是工程版本，避免「关于页」把版本号写死造成发布后显示错版本。
+  on(IPC.invoke.appVersion, () => {
+    const { app } = require('electron') as typeof import('electron')
+    return app.getVersion()
+  })
 }

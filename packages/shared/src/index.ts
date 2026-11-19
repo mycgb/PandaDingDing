@@ -276,6 +276,7 @@ export const IPC = {
     clipboardCheck: 'clipboard/check',
     openExternal: 'shell/openExternal',
     indexLatest: 'index/latest',
+    appVersion: 'app/version',
   } as const,
   push: {
     quoteSnapshot: 'quote:snapshot',
@@ -320,6 +321,8 @@ export type IpcInvokeMap = {
   [IPC.invoke.clipboardCheck]: (text: string) => SuggestItem | null
   [IPC.invoke.openExternal]: (url: string) => void
   [IPC.invoke.indexLatest]: () => QuoteSnapshot[]
+  /** 应用版本号（取自 package.json，开发态为根工程版本） */
+  [IPC.invoke.appVersion]: () => string
 }
 
 /** 可用皮肤：目录名 + manifest 中显示名 */
