@@ -20,7 +20,7 @@ function makeEngine(rule: Partial<AlertRule>, opts?: { dnd?: boolean; fired?: bo
   }]
   const watch: WatchItem[] = [{
     secId: '1.600519', code: '600519', name: '贵州茅台', market: 1,
-    weight: 1, sortOrder: 1, createdAt: '2026-11-17',
+    weight: 1, sortOrder: 1, createdAt: '2026-11-17', shares: 0, costPrice: 0,
   }]
   const engine = new AlertEngine({
     getRules: () => rules,

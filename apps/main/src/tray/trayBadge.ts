@@ -22,6 +22,8 @@ export interface BadgeInput {
   snapshots: QuoteSnapshot[]
   /** 点击穿透中（tooltip 追加恢复提示） */
   clickThrough?: boolean
+  /** 有持仓时的当日盈亏（元）；null/undefined = 未记录持仓，不显示 */
+  dayPnl?: number | null
 }
 
 export interface BadgeDecision {
@@ -69,11 +71,15 @@ function fmtPct(pct: number | null): string {
 
 /** 生成 hover 快览文案（控制长度，兼顾 macOS tooltip 限制） */
 export function buildTooltip(input: BadgeInput): string {
-  const { pct, snapshots, source, offline, alerting, clickThrough } = input
+  const { pct, snapshots, source, offline, alerting, clickThrough, dayPnl } = input
   const { up, down, flat } = tally(snapshots)
   const parts: string[] = ['熊猫盯盯']
   if (offline) parts.push('数据源离线')
   else parts.push(`组合 ${fmtPct(pct)}`)
+  // 持仓当日盈亏：一眼看到"今天赚了多少"，而不是只有百分比
+  if (typeof dayPnl === 'number' && Number.isFinite(dayPnl)) {
+    parts.push(`今日 ${dayPnl >= 0 ? '+' : '-'}${Math.abs(dayPnl).toFixed(2)}`)
+  }
   const tallyText = `${up}红${down}绿${flat ? ` ${flat}平` : ''}`
   parts.push(tallyText)
   if (source) parts.push(`源 ${source}`)

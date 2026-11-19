@@ -10,6 +10,7 @@ const api = {
   watchlistAdd: invoke('watchlistAdd'),
   watchlistRemove: invoke('watchlistRemove'),
   watchlistReorder: invoke('watchlistReorder'),
+  watchlistSetPosition: invoke('watchlistSetPosition'),
   // search
   searchSuggest: invoke('searchSuggest'),
   // rules

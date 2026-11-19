@@ -62,6 +62,12 @@ export function registerIpc(deps: IpcDeps): void {
     z.array(z.string()).parse(secIds)
     store.reorderWatchlist(secIds)
   })
+  on(IPC.invoke.watchlistSetPosition, (_e, secId: string, shares: number, costPrice: number) => {
+    secIdSchema.parse(secId)
+    const sh = z.number().finite().min(0).max(1e9).parse(shares)
+    const cp = z.number().finite().min(0).max(1e7).parse(costPrice)
+    store.setPosition(secId, sh, cp)
+  })
   on(IPC.invoke.searchSuggest, (_e, kw: string) => {
     z.string().min(1).max(40).parse(kw)
     return suggest(kw)

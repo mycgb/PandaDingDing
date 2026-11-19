@@ -14,6 +14,7 @@ const MIGRATIONS: { version: number; file: string }[] = [
   { version: 1, file: '001_init.sql' },
   { version: 2, file: '002_closing_reports.sql' },
   { version: 3, file: '003_time_alerts.sql' },
+  { version: 4, file: '004_position.sql' },
 ]
 
 export class DataStore {
@@ -46,6 +47,7 @@ export class DataStore {
       secId: String(r.sec_id), code: String(r.code), name: String(r.name),
       market: Number(r.market_type) as MarketType, weight: Number(r.weight),
       sortOrder: Number(r.sort_order), createdAt: String(r.created_at),
+      shares: Number(r.shares ?? 0), costPrice: Number(r.cost_price ?? 0),
     }))
   }
 
@@ -70,6 +72,12 @@ export class DataStore {
       secIds.forEach((id, i) => stmt.run(i + 1, id))
     })
     tx()
+  }
+
+  /** 更新持仓：股数与成本价（0 表示清空持仓，恢复为只观察） */
+  setPosition(secId: string, shares: number, costPrice: number): void {
+    this.db.prepare('UPDATE watchlist SET shares = ?, cost_price = ? WHERE sec_id = ?')
+      .run(Math.max(0, shares), Math.max(0, costPrice), secId)
   }
 
   /* ---------- alert rules ---------- */

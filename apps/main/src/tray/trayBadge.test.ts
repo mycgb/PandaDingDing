@@ -48,4 +48,14 @@ test('decideBadge: 各态图标与 tooltip 联动', () => {
   assert.equal(decideBadge({ ...base, enabled: false }).kind, 'none')
 })
 
+test('buildTooltip: 有持仓时追加当日盈亏金额', () => {
+  const gain = buildTooltip({ ...base, dayPnl: 123.45 })
+  assert.ok(gain.includes('今日 +123.45'), gain)
+  const loss = buildTooltip({ ...base, dayPnl: -80 })
+  assert.ok(loss.includes('今日 -80.00'), loss)
+  // 未记录持仓（null / undefined）不出现"今日"
+  assert.ok(!buildTooltip({ ...base, dayPnl: null }).includes('今日'))
+  assert.ok(!buildTooltip(base).includes('今日'))
+})
+
 console.log('tray-badge: all tests passed')

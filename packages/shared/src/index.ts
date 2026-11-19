@@ -3,6 +3,7 @@
 export * from './market-calendar.ts'
 export * from './breath.ts'
 export * from './ds-state.ts'
+export * from './position.ts'
 
 /** 市场号，与东方财富 MktNum / secid 前缀一致 */
 export type MarketType =
@@ -69,6 +70,10 @@ export interface WatchItem {
   weight: number
   sortOrder: number
   createdAt: string
+  /** 持仓股数（0 = 只观察，不参与盈亏统计） */
+  shares: number
+  /** 持仓成本价（0 = 未填成本，累计盈亏不计算） */
+  costPrice: number
 }
 
 /** 提醒指标。volumeMultiple=成交量倍数；streakUp/streakDown=连涨/连跌天数（阈值为天数） */
@@ -221,6 +226,7 @@ export const IPC = {
     watchlistAdd: 'watchlist/add',
     watchlistRemove: 'watchlist/remove',
     watchlistReorder: 'watchlist/reorder',
+    watchlistSetPosition: 'watchlist/setPosition',
     searchSuggest: 'search/suggest',
     rulesUpsert: 'rules/upsert',
     rulesDelete: 'rules/delete',
@@ -264,6 +270,7 @@ export type IpcInvokeMap = {
   [IPC.invoke.watchlistAdd]: (secId: string, name: string, market: MarketType) => WatchItem
   [IPC.invoke.watchlistRemove]: (secId: string) => void
   [IPC.invoke.watchlistReorder]: (secIds: string[]) => void
+  [IPC.invoke.watchlistSetPosition]: (secId: string, shares: number, costPrice: number) => void
   [IPC.invoke.searchSuggest]: (keyword: string) => SuggestItem[]
   [IPC.invoke.rulesUpsert]: (rule: AlertRule) => void
   [IPC.invoke.rulesDelete]: (ruleId: string) => void

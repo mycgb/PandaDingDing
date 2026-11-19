@@ -4,7 +4,7 @@ import { portfolioPct, resolvePetState, baseMoodState, phasePetOverride, roamDec
 import type { QuoteSnapshot, WatchItem } from '../../../../packages/shared/src/index.ts'
 
 const w = (secId: string, weight = 1): WatchItem => ({
-  secId, code: secId.split('.')[1], name: secId, market: 1, weight, sortOrder: 1, createdAt: '',
+  secId, code: secId.split('.')[1], name: secId, market: 1, weight, sortOrder: 1, createdAt: '', shares: 0, costPrice: 0,
 })
 const s = (secId: string, pct: number | null): QuoteSnapshot => ({
   secId, code: secId.split('.')[1], name: secId, market: 1,

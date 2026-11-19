@@ -16,7 +16,7 @@ import { registerIpc } from './ipc/handlers.ts'
 import { suggest, BUILTIN_ETF, parseClipboardCode } from './search/suggest.ts'
 import { setPetWindow } from './windows/petWindowAccess.ts'
 import { KlineService, bindFetch as bindKline } from './kline/KlineService.ts'
-import { IPC, phaseOf, isTradingDay, MARKET_INDICES, DEFAULT_SETTINGS, type AppSettings, type QuoteSnapshot, type WatchItem, type PetState, type ClosingReport, type TimeAlert } from '../../../packages/shared/src/index.ts'
+import { IPC, phaseOf, isTradingDay, MARKET_INDICES, calcPosition, DEFAULT_SETTINGS, type AppSettings, type QuoteSnapshot, type WatchItem, type PetState, type ClosingReport, type TimeAlert } from '../../../packages/shared/src/index.ts'
 import { pathToFileURL } from 'node:url'
 
 const IS_DEV = !!process.env.PETTICKER_DEV
@@ -727,6 +727,7 @@ function updateTrayBadge(pct: number | null, alerting: boolean): void {
     source: dsm.activeSource === '东方财富' ? '东财' : dsm.activeSource,
     snapshots: latestSnapshots,
     clickThrough: settings.clickThrough,
+    dayPnl: portfolioDayPnl(),
   })
   if (decision.iconFile !== trayIconFile) {
     const path = decision.iconFile ? trayBadgePath(decision.iconFile) : trayBasePath()
@@ -734,6 +735,24 @@ function updateTrayBadge(pct: number | null, alerting: boolean): void {
     trayIconFile = decision.iconFile
   }
   tray.setToolTip(decision.tooltip)
+}
+
+/** 组合当日盈亏（元）：只统计填了股数且有现价的标的；全部没持仓时返回 null */
+function portfolioDayPnl(): number | null {
+  let sum = 0
+  let has = false
+  for (const w of store.listWatchlist()) {
+    if (!(w.shares > 0)) continue
+    const q = latestSnapshots.find((s) => s.secId === w.secId)
+    const st = calcPosition({
+      shares: w.shares, costPrice: w.costPrice,
+      price: q?.price ?? null, prevClose: q?.prevClose ?? null,
+    })
+    if (!st) continue
+    sum += st.dayPnl
+    has = true
+  }
+  return has ? sum : null
 }
 
 /** 重建托盘菜单：动态显示点击穿透状态（穿透时置顶显示"恢复交互"，避免用户卡死） */
