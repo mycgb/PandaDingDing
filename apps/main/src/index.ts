@@ -96,12 +96,35 @@ let indexWin: BrowserWindow | null = null
  * 而 Electron 会把它弹成错误对话框。桌宠是脱离终端运行的 GUI 应用，
  * 管道随时可能断裂，因此这里统一捕获并静默。
  */
+/**
+ * 日志同时写 stdout 和文件。
+ *
+ * 生产环境必须落盘：start.mjs 用 stdio:'ignore' 启动 Electron，stdout 直接丢弃，
+ * 只写 stdout 等于没有日志（桌宠常驻后台、出问题没人能复现）。体积超过 2MB 轮转一次，
+ * 只留 main.old.log，避免无限增长。
+ */
+let logStream: fs.WriteStream | null = null
+let logFile = ''
+function openLogFile(): void {
+  try {
+    logFile = process.env.PETTICKER_LOG_FILE || path.join(app.getPath('userData'), 'logs', 'main.log')
+    fs.mkdirSync(path.dirname(logFile), { recursive: true })
+    try {
+      if (fs.statSync(logFile).size > 2 * 1024 * 1024) fs.renameSync(logFile, `${logFile}.old`)
+    } catch { /* 文件还不存在，无需轮转 */ }
+    logStream = fs.createWriteStream(logFile, { flags: 'a' })
+    logStream.on('error', () => { logStream = null })
+  } catch { logStream = null }
+}
+
 const log = (...a: unknown[]): void => {
+  const line = a.map(String).join(' ')
+  try { logStream?.write(`${new Date().toISOString()} ${line}\n`) } catch { /* 落盘失败不影响运行 */ }
   try {
     const write = (process.stdout as unknown as { write?: (chunk: string, cb?: (err: Error | null) => void) => boolean }).write
     if (!write) return
     // 传入回调让 EPIPE 走异步回调而非同步抛出
-    const ok = write.call(process.stdout, a.map(String).join(' ') + '\n', (err) => { void err })
+    const ok = write.call(process.stdout, line + '\n', (err) => { void err })
     if (ok === false) { /* 背压：丢弃本条，不影响应用 */ }
   } catch { /* stdout 不可用：静默 */ }
 }
@@ -132,6 +155,8 @@ else app.quit()
 function boot(): void {
   // 顶层常量延迟求值：app.getAppPath 在模块加载期可能未初始化
   computePaths()
+  openLogFile()
+  log(`启动 v${app.getVersion()}（日志: ${logFile || '未落盘'}）`)
   registerResourceScheme()
   app.whenReady().then(() => { registerResourceHandler(); start() })
     .catch((e) => { log('boot fail', e); app.quit() })
@@ -616,6 +641,35 @@ function clampToWorkArea(x: number, y: number, w: number, h: number, minVisible 
   return [Math.round(cx), Math.round(cy)]
 }
 
+/**
+ * 渲染进程崩溃/无响应时留痕，并尝试自愈。
+ *
+ * 这类窗口是无边框常驻窗口：渲染进程一崩，窗口就变成一块空白死窗口，
+ * 用户只看到桌宠/面板"没了"，主进程却照常跑，日志里什么都没有。
+ * 策略：崩溃后重载一次；同一窗口 60 秒内再崩就销毁（避免无限重载循环，
+ * 面板可以从托盘重开，桌宠会在下次启动时重建）。
+ */
+const CRASH_RELOAD_AT = new Map<string, number>()
+function watchRenderer(win: BrowserWindow, tag: string): void {
+  win.webContents.on('render-process-gone', (_e, d) => {
+    log(`[崩溃] ${tag} 渲染进程退出 reason=${d.reason} exitCode=${d.exitCode}`)
+    if (d.reason === 'clean-exit' || d.reason === 'killed') return
+    const now = Date.now()
+    const last = CRASH_RELOAD_AT.get(tag) ?? 0
+    if (now - last < 60_000) {
+      log(`[崩溃] ${tag} 一分钟内重复崩溃，放弃重载`)
+      return
+    }
+    CRASH_RELOAD_AT.set(tag, now)
+    setTimeout(() => {
+      if (win.isDestroyed()) return
+      try { win.webContents.reload(); log(`[崩溃] ${tag} 已重载`) } catch (e) { log(`[崩溃] ${tag} 重载失败:`, e) }
+    }, 500)
+  })
+  win.webContents.on('unresponsive', () => log(`[无响应] ${tag}`))
+  win.webContents.on('responsive', () => log(`[恢复响应] ${tag}`))
+}
+
 function createPetWindow(): void {
   const pos = settings.petPosition
   // 启动时也做一次边界修正（显示器配置可能已变）
@@ -636,6 +690,7 @@ function createPetWindow(): void {
     },
   })
   setPetWindow(petWin)
+  watchRenderer(petWin, '桌宠')
   petWin.setAlwaysOnTop(true, 'screen-saver')
   petWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   // 区分「单击」与「拖拽」：app-region 让 OS 接管移动，这里用 moved 距离判断。
@@ -727,6 +782,7 @@ function createPanelWindow(): void {
       contextIsolation: true, nodeIntegration: false, sandbox: false,
     },
   })
+  watchRenderer(panelWin, '面板')
   panelWin.loadURL(RENDERER_URL + '?window=panel')
   panelWin.on('closed', () => { panelWin = null })
 }
@@ -755,6 +811,7 @@ function createIndexWindow(): void {
   })
   indexWin.setAlwaysOnTop(true, 'screen-saver')
   indexWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  watchRenderer(indexWin, '指数条')
   indexWin.loadURL(RENDERER_URL + '?window=index')
   // Windows 只在拖动结束时触发 moved，不会造成高频写库
   indexWin.on('moved', () => {
@@ -1125,7 +1182,10 @@ function isAfterClose(now: Date): boolean {
 function broadcast(channel: string, payload: unknown): void {
   // indexWin 必须在内：温度条没有轮询能力，只靠 index:quotes 推送更新
   for (const w of [petWin, panelWin, indexWin]) {
-    if (w && !w.isDestroyed()) w.webContents.send(channel, payload)
+    // 只看 isDestroyed() 不够：渲染进程崩溃后窗口对象仍在，但 WebFrameMain 已释放，
+    // send() 会在 Electron 内部报 "Render frame was disposed" 并且每 3 秒刷屏一次
+    if (!w || w.isDestroyed() || w.webContents.isDestroyed()) continue
+    try { w.webContents.send(channel, payload) } catch { /* 帧刚好在发送瞬间销毁：跳过本次 */ }
   }
 }
 

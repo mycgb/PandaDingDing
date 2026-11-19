@@ -11,7 +11,7 @@
     "build": "node scripts/build.mjs",
     "start": "node scripts/start.mjs",
     "skin": "python scripts/gen_skin.py",
-    "test": "node --experimental-strip-types --test packages/shared/tests/*.test.ts apps/main/src/data-source/*.test.ts apps/main/src/alert/*.test.ts apps/main/src/pet/*.test.ts apps/main/src/tray/*.test.ts",
+    "test": "node --experimental-strip-types --test packages/shared/tests/*.test.ts apps/main/src/data-source/*.test.ts apps/main/src/alert/*.test.ts apps/main/src/pet/*.test.ts apps/main/src/tray/*.test.ts apps/main/src/update/*.test.ts",
     "typecheck": "pnpm -r typecheck",
     "smoke": "node scripts/smoke.mjs",
     "dist": "node scripts/build.mjs && electron-builder --config electron-builder.yml",

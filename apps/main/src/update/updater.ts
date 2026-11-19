@@ -87,14 +87,27 @@ export function isInstallable(asset: UpdateAsset | null, platform: NodeJS.Platfo
   return platform === 'win32' && !!asset && /-nsis\.exe$/i.test(asset.name)
 }
 
-/** Release 正文太长会把设置页撑爆，截到前 600 字；顺手把 markdown 标记去掉（纯文本展示） */
+/**
+ * Release 正文太长会把设置页撑爆，截到前 600 字；顺手把 markdown 标记去掉（纯文本展示）。
+ *
+ * 正文里有不少 CI 自动生成的样板（构建时间、提交号、下载清单），对「有新版本」卡片
+ * 没有信息量，还会把真正的更新内容挤出 600 字之外，所以先砍掉再截断。
+ */
 function trimNotes(body: string | null | undefined): string | null {
   if (!body) return null
-  const text = body
+  let text = body
     .replace(/^#{1,6}\s+/gm, '')        // 标题
     .replace(/\*\*(.+?)\*\*/g, '$1')    // 粗体
+    .replace(/^_(.+?)_\s*$/gm, '$1')    // 斜体（版本区间那一行）
     .replace(/^\s*[-*]\s+/gm, '· ')     // 列表
+    .replace(/^\s*>\s?/gm, '')          // 引用块
+    .replace(/^构建时间：.*$/gm, '')     // 自动生成的元信息
+    .replace(/^提交：.*$/gm, '')
     .trim()
+  // 「下载」及之后是按产物生成的链接清单（见 .github/workflows/release.yml）
+  const cut = text.search(/^下载\s*$/m)
+  if (cut >= 0) text = text.slice(0, cut).trim()
+  text = text.replace(/\n{3,}/g, '\n\n').trim()
   if (!text) return null
   return text.length > 600 ? `${text.slice(0, 600)}…` : text
 }
@@ -109,11 +122,14 @@ export function toUpdateInfo(input: {
   const { release, current, platform, arch, checkedAt } = input
   const latest = normalizeVersion(release.tag_name ?? '')
   const assets = Array.isArray(release.assets) ? release.assets : []
-  const asset = latest ? pickAsset(assets, platform, arch) : null
+  const hasUpdate = !!latest && compareVersions(latest, current) > 0
+  // 没有新版本就绝不带 asset：否则「有 asset 就下载安装」的代码会把用户
+  // 重装甚至降级回旧版本（例如本地是未发布的 0.2.4，线上最新还是 0.2.3）
+  const asset = hasUpdate ? pickAsset(assets, platform, arch) : null
   return {
     current: normalizeVersion(current),
     latest: latest || null,
-    hasUpdate: !!latest && compareVersions(latest, current) > 0,
+    hasUpdate,
     publishedAt: release.published_at ?? null,
     htmlUrl: release.html_url ?? UPDATE_PAGE,
     notes: trimNotes(release.body),

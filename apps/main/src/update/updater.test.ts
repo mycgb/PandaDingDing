@@ -77,15 +77,51 @@ const md = toUpdateInfo({
 })
 assert.equal(md.notes, '新增\n· 托盘温度条开关 — 右键即可')
 
-// 同版本 / 更旧的 Release：不算更新
+// CI 自动生成的样板（构建时间 / 提交号 / 下载清单）不能混进升级卡片
+const boiler = toUpdateInfo({
+  release: {
+    tag_name: 'v0.3.0',
+    body: [
+      'PandaDingDing · 熊猫盯盯  0.3.0',
+      '',
+      '构建时间：2026-11-20 00:00 UTC',
+      '提交：`abcdef1`',
+      '',
+      '## 更新内容',
+      '',
+      '_v0.2.2 → v0.3.0_',
+      '',
+      '- feat: 提醒动作强化',
+      '- fix: 托盘菜单点不开',
+      '',
+      '## 下载',
+      '',
+      '- Windows 安装版 (NSIS) — [a.exe](https://x/a.exe)（130 MB）',
+      '',
+      '> 行情数据仅供参考，不构成投资建议。',
+    ].join('\n'),
+  },
+  current: '0.2.2', platform: 'win32', arch: 'x64', checkedAt: 1,
+})
+assert.ok(!boiler.notes.includes('构建时间'), boiler.notes ?? '')
+assert.ok(!boiler.notes.includes('提交：'), boiler.notes ?? '')
+assert.ok(!boiler.notes.includes('下载'), boiler.notes ?? '')
+assert.ok(!boiler.notes.includes('不构成投资建议'), boiler.notes ?? '')
+assert.ok(boiler.notes.includes('· feat: 提醒动作强化'), boiler.notes ?? '')
+assert.ok(boiler.notes.includes('· fix: 托盘菜单点不开'), boiler.notes ?? '')
+
+// 同版本 / 更旧的 Release：不算更新，且不能带出安装包（否则可能被降级重装）
 const same = toUpdateInfo({
   release: { tag_name: 'v0.2.2', assets }, current: '0.2.2', platform: 'win32', arch: 'x64', checkedAt: 1,
 })
 assert.equal(same.hasUpdate, false)
+assert.equal(same.asset, null)
+assert.equal(same.installable, false)
 const older = toUpdateInfo({
   release: { tag_name: 'v0.2.1', assets }, current: '0.2.2', platform: 'win32', arch: 'x64', checkedAt: 1,
 })
 assert.equal(older.hasUpdate, false)
+assert.equal(older.asset, null)
 
 // 检查失败：保留上次结果，只记录错误
 const failed = failedUpdateInfo({ current: '0.2.2', error: 'GitHub HTTP 403', checkedAt: 9, previous: info })
