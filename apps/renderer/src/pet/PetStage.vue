@@ -143,6 +143,10 @@ function playAction(action: string): void {
   currentAction = key
   currentFrame = 0
   sprite.texture = first
+  // 朝向在每次切动作时统一重置：walk 向左时 scale.x 为负，
+  // 若只在 watch 里纠正，任何绕过 watch 的切换（皮肤热更、直接 setAction）
+  // 都会让非走路动作继承镜像，横幅文字会反着显示。
+  applyFacing()
   const fps = cfg.fps ?? manifest.fps ?? 12
   const loop = cfg.loop
   const next = cfg.next ?? null
