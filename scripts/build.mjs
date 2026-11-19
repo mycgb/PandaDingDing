@@ -17,10 +17,12 @@ function runStep(label, script, cwd) {
 async function main() {
   await runStep('preload', join(ROOT, 'apps/preload/build.mjs'), join(ROOT, 'apps/preload'))
   await runStep('main', join(ROOT, 'apps/main/build.mjs'), join(ROOT, 'apps/main'))
-  const vite = join(ROOT, 'apps/renderer/node_modules/.bin/vite.cmd')
+  // vite 的 .bin 启动器跨平台命名不同：Windows 是 vite.cmd，Unix 是 vite（无扩展名）。
+  // 写死 vite.cmd 会导致 Linux/macOS 上 /bin/sh: vite.cmd: not found（exit 127）。
+  const viteBin = join(ROOT, 'apps/renderer/node_modules/.bin', process.platform === 'win32' ? 'vite.cmd' : 'vite')
   await new Promise((ok, fail) => {
     console.log('\n== renderer ==')
-    const p = spawn(vite, ['build'], { cwd: join(ROOT, 'apps/renderer'), stdio: 'inherit', shell: true })
+    const p = spawn(viteBin, ['build'], { cwd: join(ROOT, 'apps/renderer'), stdio: 'inherit', shell: process.platform === 'win32' })
     p.on('exit', (c) => (c === 0 ? ok() : fail(new Error(`renderer 构建失败（exit ${c}）`))))
   })
   console.log('\n✅ 构建完成：pnpm start 启动应用')
