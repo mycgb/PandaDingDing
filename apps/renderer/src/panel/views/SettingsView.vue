@@ -124,7 +124,14 @@
           <option value="CommandOrControl+Alt+P">Ctrl + Alt + P</option>
         </select>
       </label>
-      <div class="hint">按一次把桌宠和管理面板一起藏起来，再按一次恢复。隐身态只影响本次运行，不会改「显示桌宠」的设置，下次启动照旧。若组合键被其他软件占用会静默失效，可在托盘菜单看该项是否可点。</div>
+      <label class="row">
+        <span>指数温度条（大盘常驻一角）</span>
+        <input type="checkbox" v-model="s.indexBarEnabled" @change="save" />
+      </label>
+      <div class="hint">
+        老板键：按一次把桌宠、面板和温度条一起藏起来，再按一次恢复；隐身态只影响本次运行，不改「显示桌宠」的设置。组合键被其他软件占用时会静默失效。<br />
+        指数温度条：桌面右侧常驻上证 / 深成 / 创业板 / 科创50，红涨绿跌、横条长度表示幅度（±1.5% 打满）。可直接拖到任意角落，位置会记住。
+      </div>
     </div>
 
     <div class="card">

@@ -16,7 +16,7 @@ import { registerIpc } from './ipc/handlers.ts'
 import { suggest, BUILTIN_ETF, parseClipboardCode } from './search/suggest.ts'
 import { setPetWindow } from './windows/petWindowAccess.ts'
 import { KlineService, bindFetch as bindKline } from './kline/KlineService.ts'
-import { IPC, phaseOf, isTradingDay, DEFAULT_SETTINGS, type AppSettings, type QuoteSnapshot, type WatchItem, type PetState, type ClosingReport, type TimeAlert } from '../../../packages/shared/src/index.ts'
+import { IPC, phaseOf, isTradingDay, MARKET_INDICES, DEFAULT_SETTINGS, type AppSettings, type QuoteSnapshot, type WatchItem, type PetState, type ClosingReport, type TimeAlert } from '../../../packages/shared/src/index.ts'
 import { pathToFileURL } from 'node:url'
 
 const IS_DEV = !!process.env.PETTICKER_DEV
@@ -59,6 +59,8 @@ let alertEngine: AlertEngine
 let klineSvc: KlineService
 let settings: AppSettings
 let latestSnapshots: QuoteSnapshot[] = []
+/** 大盘指数（温度条用，与自选分开存，避免混入组合涨跌计算） */
+let latestIndexQuotes: QuoteSnapshot[] = []
 let alertHoldUntil = 0
 let lastAlertDirection: 'up' | 'down' | null = null
 /** 桌宠窗口本次交互是否发生过位移（用于区分单击/拖拽） */
@@ -71,6 +73,12 @@ let bossAccel: string | null = null
 /** 桌宠窗口尺寸（含气泡区）；与渲染层 PetStage 的 STAGE_W/H 保持一致 */
 const PET_W = 160
 const PET_H = 210
+
+/** 指数温度条：窗口尺寸（指数列表见 shared 的 MARKET_INDICES） */
+const INDEX_W = 134
+const INDEX_H = 92
+const INDEX_ITEMS = MARKET_INDICES
+let indexWin: BrowserWindow | null = null
 
 /**
  * 主进程日志。
@@ -201,10 +209,12 @@ function start(): void {
   registerIpc({
     store, dsm, scheduler,
     getSnapshots: () => latestSnapshots,
+    getIndexSnapshots: () => latestIndexQuotes,
     onSettingChanged: (s) => {
       const prevSkin = settings.skin
       const prevBossEnabled = settings.bossKeyEnabled
       const prevBossAccel = settings.bossKeyAccelerator
+      const prevIndexBar = settings.indexBarEnabled
       settings = s
       // 皮肤更换：基础托盘图可能变化，强制重建图标
       if (s.skin !== prevSkin) {
@@ -218,6 +228,11 @@ function start(): void {
       if (s.bossKeyEnabled !== prevBossEnabled || s.bossKeyAccelerator !== prevBossAccel) {
         registerBossKey()
         refreshTray()
+      }
+      // 指数温度条开关：即时建/销窗口，并立刻拉一次指数（不必等下一轮轮询）
+      if (s.indexBarEnabled !== prevIndexBar) {
+        if (s.indexBarEnabled) { createIndexWindow(); void pollOnce() }
+        else { indexWin?.close(); indexWin = null; latestIndexQuotes = [] }
       }
       // 免打扰时段改了要立刻反映到桌宠（否则要等下一轮轮询才躺下/起身）
       pushPetState()
@@ -238,6 +253,7 @@ function start(): void {
 
   createTray()
   createPetWindow()
+  createIndexWindow()
   createRoamController()
   registerBossKey()
   startTimeAlerts()
@@ -548,7 +564,12 @@ function createRoamController(): void {
 
 function createPanelWindow(): void {
   // 老板键隐身期间用户主动打开面板 = 要退出隐身，否则会"面板出现了桌宠还藏着"
-  if (bossHidden) { bossHidden = false; if (settings.petVisible) petWin?.showInactive(); refreshTray() }
+  if (bossHidden) {
+    bossHidden = false
+    if (settings.petVisible) petWin?.showInactive()
+    if (settings.indexBarEnabled) indexWin?.showInactive()
+    refreshTray()
+  }
   roamCtrl?.notifyUserActivity()   // 用户交互：中断漫游
   if (panelWin) { panelWin.show(); panelWin.focus(); return }
   const primary = screen.getPrimaryDisplay()
@@ -574,11 +595,45 @@ function createPanelWindow(): void {
   panelWin.on('closed', () => { panelWin = null })
 }
 
+/** 指数温度条窗口：桌面角落常驻的 4 行大盘指数，可拖动，位置落库 */
+function createIndexWindow(): void {
+  if (!settings.indexBarEnabled) {
+    if (indexWin && !indexWin.isDestroyed()) indexWin.close()
+    indexWin = null
+    return
+  }
+  if (indexWin && !indexWin.isDestroyed()) return
+  const wa = screen.getPrimaryDisplay().workArea
+  const pos = settings.indexBarPosition
+  const x = pos ? pos.x : wa.x + wa.width - INDEX_W - 16
+  const y = pos ? pos.y : wa.y + 140
+  indexWin = new BrowserWindow({
+    width: INDEX_W, height: INDEX_H, x, y,
+    transparent: true, frame: false, alwaysOnTop: true, hasShadow: false,
+    backgroundColor: '#00000000', skipTaskbar: true, resizable: false,
+    webPreferences: {
+      preload: path.join(APP_DIR, 'dist/preload.cjs'),
+      contextIsolation: true, nodeIntegration: false, sandbox: false,
+      backgroundThrottling: false,
+    },
+  })
+  indexWin.setAlwaysOnTop(true, 'screen-saver')
+  indexWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  indexWin.loadURL(RENDERER_URL + '?window=index')
+  // Windows 只在拖动结束时触发 moved，不会造成高频写库
+  indexWin.on('moved', () => {
+    if (!indexWin || indexWin.isDestroyed()) return
+    const [px, py] = indexWin.getPosition()
+    store.setSetting('indexBarPosition', { x: px, y: py })
+  })
+  indexWin.on('closed', () => { indexWin = null })
+}
+
 function setPetVisible(visible: boolean): void {
   // 显式要求显示 → 同时退出老板键隐身态，避免"点了显示却看不到"
   if (visible && bossHidden) { bossHidden = false; refreshTray() }
-  if (visible) petWin?.showInactive()
-  else petWin?.hide()
+  if (visible) { petWin?.showInactive(); if (settings.indexBarEnabled) indexWin?.showInactive() }
+  else { petWin?.hide(); indexWin?.hide() }
   settings.petVisible = visible
   store.setSetting('petVisible', visible)
   refreshTray()
@@ -603,10 +658,12 @@ function toggleBossHidden(): void {
   if (bossHidden) {
     petWin?.hide()
     panelWin?.hide()
+    indexWin?.hide()
     roamCtrl?.notifyUserActivity()   // 隐身时停止漫游，避免后台继续移动
     log('老板键：隐藏')
   } else {
     if (settings.petVisible) petWin?.showInactive()
+    if (settings.indexBarEnabled) indexWin?.showInactive()
     if (panelWin && !panelWin.isDestroyed()) { panelWin.show(); panelWin.focus() }
     log('老板键：恢复')
   }
@@ -734,15 +791,27 @@ function shortAccel(a: string): string {
 
 async function pollOnce(): Promise<void> {
   const wl = store.listWatchlist()
-  if (wl.length === 0) { latestSnapshots = []; return }
-  const snaps = await dsm.fetchAll(wl.map((w) => ({ market: w.market, code: w.code })))
+  const withIndex = settings.indexBarEnabled
+  if (wl.length === 0 && !withIndex) { latestSnapshots = []; return }
+  // 指数与自选合并到同一次批量请求（东财一次可带 50 个 secid），不增加请求数
+  const targets = [
+    ...wl.map((w) => ({ market: w.market, code: w.code })),
+    ...(withIndex ? INDEX_ITEMS.map((i) => ({ market: i.market, code: i.code })) : []),
+  ]
+  const snaps = await dsm.fetchAll(targets)
   if (snaps.length === 0) return
-  latestSnapshots = snaps
-  broadcast(IPC.push.quoteSnapshot, snaps)
+  const indexIds = new Set(INDEX_ITEMS.map((i) => i.secId))
+  const indexSnaps = snaps.filter((s) => indexIds.has(s.secId))
+  latestSnapshots = snaps.filter((s) => !indexIds.has(s.secId))
+  broadcast(IPC.push.quoteSnapshot, latestSnapshots)
+  if (withIndex && indexSnaps.length > 0) {
+    latestIndexQuotes = indexSnaps
+    broadcast(IPC.push.indexQuotes, indexSnaps)
+  }
   scheduler.setBackoff(dsm.backoff)
   // 成交量倍数 / 连涨连跌规则需要日K派生数据；无相关规则时零开销，K线有 10 分钟缓存
-  await enrichDerived(snaps, store.listRules(), klineSvc, new Date(), log)
-  alertEngine.feed(snaps)
+  await enrichDerived(latestSnapshots, store.listRules(), klineSvc, new Date(), log)
+  alertEngine.feed(latestSnapshots)
   pushPetState()
 }
 
@@ -817,7 +886,8 @@ function pushPetState(): void {
 }
 
 function broadcast(channel: string, payload: unknown): void {
-  for (const w of [petWin, panelWin]) {
+  // indexWin 必须在内：温度条没有轮询能力，只靠 index:quotes 推送更新
+  for (const w of [petWin, panelWin, indexWin]) {
     if (w && !w.isDestroyed()) w.webContents.send(channel, payload)
   }
 }

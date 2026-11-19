@@ -21,6 +21,7 @@ const api = {
   settingsSet: invoke('settingsSet'),
   // quotes / alerts
   quoteLatest: invoke('quoteLatest'),
+  indexLatest: invoke('indexLatest'),
   alertHistory: invoke('alertHistory'),
   alertResetCooldown: invoke('alertResetCooldown'),
   timeAlertsList: invoke('timeAlertsList'),

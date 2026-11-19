@@ -28,6 +28,17 @@ export function isOtcFund(market: MarketType): boolean { return market === 150 }
 
 export interface SecId { market: MarketType; code: string }
 
+/**
+ * 指数温度条盯的 4 个大盘指数。
+ * 主进程用于订阅行情，渲染层用于取中文简称——放 shared 里保证两边一致。
+ */
+export const MARKET_INDICES: { secId: string; market: MarketType; code: string; short: string }[] = [
+  { secId: '1.000001', market: 1, code: '000001', short: '上证' },
+  { secId: '0.399001', market: 0, code: '399001', short: '深成' },
+  { secId: '0.399006', market: 0, code: '399006', short: '创业板' },
+  { secId: '1.000688', market: 1, code: '000688', short: '科创50' },
+]
+
 export interface QuoteSnapshot {
   secId: string          // '1.600519'
   code: string
@@ -172,6 +183,8 @@ export interface AppSettings {
   trayBadge: boolean       // 托盘角标：显示组合涨跌红绿点 + hover 快览（默认开）
   bossKeyEnabled: boolean  // 老板键：全局热键一键隐藏桌宠与面板（默认开）
   bossKeyAccelerator: string  // 老板键组合键（Electron Accelerator 格式）
+  indexBarEnabled: boolean // 指数温度条：桌面角落常驻一条大盘指数（默认开）
+  indexBarPosition: { x: number; y: number } | null  // 温度条窗口位置
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -196,6 +209,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   trayBadge: true,
   bossKeyEnabled: true,
   bossKeyAccelerator: 'CommandOrControl+Shift+H',
+  indexBarEnabled: true,
+  indexBarPosition: null,
 }
 
 /* ---------- IPC channel 白名单 ---------- */
@@ -232,6 +247,7 @@ export const IPC = {
     closingReports: 'closing/reports',
     clipboardCheck: 'clipboard/check',
     openExternal: 'shell/openExternal',
+    indexLatest: 'index/latest',
   } as const,
   push: {
     quoteSnapshot: 'quote:snapshot',
@@ -239,6 +255,7 @@ export const IPC = {
     systemNotice: 'system:notice',
     petState: 'pet:state',
     settingsChanged: 'settings:changed',
+    indexQuotes: 'index:quotes',
   } as const,
 }
 
@@ -273,6 +290,7 @@ export type IpcInvokeMap = {
   [IPC.invoke.closingReports]: (limit?: number) => ClosingReport[]
   [IPC.invoke.clipboardCheck]: (text: string) => SuggestItem | null
   [IPC.invoke.openExternal]: (url: string) => void
+  [IPC.invoke.indexLatest]: () => QuoteSnapshot[]
 }
 
 /** 可用皮肤：目录名 + manifest 中显示名 */

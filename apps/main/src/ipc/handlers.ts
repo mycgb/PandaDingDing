@@ -10,6 +10,8 @@ export interface IpcDeps {
   dsm: DataSourceManager
   scheduler: QuoteScheduler
   getSnapshots(): import('../../../../packages/shared/src/index.ts').QuoteSnapshot[]
+  /** 指数温度条用的 4 个大盘指数快照（与自选分开） */
+  getIndexSnapshots?(): import('../../../../packages/shared/src/index.ts').QuoteSnapshot[]
   onSettingChanged(s: import('../../../../packages/shared/src/index.ts').AppSettings): void
   getSettingsRef(): import('../../../../packages/shared/src/index.ts').AppSettings
   openPanel(): void
@@ -102,6 +104,7 @@ export function registerIpc(deps: IpcDeps): void {
     return next
   })
   on(IPC.invoke.quoteLatest, () => deps.getSnapshots())
+  on(IPC.invoke.indexLatest, () => deps.getIndexSnapshots?.() ?? [])
   on(IPC.invoke.alertHistory, (_e, date?: string) => store.listAlertEvents(date))
   on(IPC.invoke.alertResetCooldown, (_e, secId: string) => { secIdSchema.parse(secId); store.resetCooldown(secId) })
   /* ---------- 定时时点提醒 ---------- */

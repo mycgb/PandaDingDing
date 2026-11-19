@@ -19,6 +19,9 @@ export const api = window.petApi
 export function onQuote(cb: (snaps: QuoteSnapshot[]) => void): () => void {
   return api.on(IPC.push.quoteSnapshot, (s) => cb(s as QuoteSnapshot[]))
 }
+export function onIndexQuotes(cb: (snaps: QuoteSnapshot[]) => void): () => void {
+  return api.on(IPC.push.indexQuotes, (s) => cb(s as QuoteSnapshot[]))
+}
 export function onAlert(cb: (e: AlertEvent) => void): () => void {
   return api.on(IPC.push.alertTriggered, (e) => cb(e as AlertEvent))
 }
