@@ -492,23 +492,34 @@ function ensureDefaultSkin(): void {
   }
 }
 
-/** 扫描 resources/skins，返回可用皮肤（含 manifest 里的显示名） */
+/**
+ * 扫描 resources/skins，返回可用皮肤（含 manifest 里的显示名）。
+ * manifest 里带 `"hidden": true` 的皮肤不进列表（素材仍在磁盘上，skin 设置指向它照样能加载），
+ * 用来把试验版本 / 占位素材从下拉里藏起来，避免用户挑到半成品。
+ * 全部被隐藏时退化为返回全部，防止下拉变空。
+ */
 function listSkins(): { id: string; name: string }[] {
   const root = res('skins')
   if (!fs.existsSync(root)) return []
-  return fs.readdirSync(root, { withFileTypes: true })
+  const all = fs.readdirSync(root, { withFileTypes: true })
     .filter((d) => d.isDirectory())
     .map((d) => {
       const mf = path.join(root, d.name, 'manifest.json')
       let name = d.name
+      let hidden = false
       try {
         if (fs.existsSync(mf)) {
-          const m = JSON.parse(fs.readFileSync(mf, 'utf8')) as { name?: string }
+          const m = JSON.parse(fs.readFileSync(mf, 'utf8')) as { name?: string; hidden?: boolean }
           if (m.name) name = m.name
+          hidden = m.hidden === true
         }
       } catch { /* 用目录名兜底 */ }
-      return { id: d.name, name }
+      return { id: d.name, name, hidden }
     })
+  const visible = all.filter((s) => !s.hidden)
+  const shown = visible.length > 0 ? visible : all
+  return shown
+    .map(({ id, name }) => ({ id, name }))
     .sort((a, b) => a.id.localeCompare(b.id))
 }
 
