@@ -17,6 +17,11 @@
       <div class="titlebar-spacer" />
     </header>
 
+    <!-- 行情源/网络事件提示：独立提示条，不再污染 source 字段 -->
+    <transition name="notice-fade">
+      <div v-if="notice" class="notice-bar">{{ notice }}</div>
+    </transition>
+
     <div class="content">
       <aside class="sidebar">
         <div class="brand">
@@ -30,8 +35,8 @@
           </button>
         </nav>
         <footer class="src-status">
-          <span class="status-dot" :class="{ ok: ds.state === 'PRIMARY' }" />
-          数据源 {{ ds.source }} · {{ ds.state }}<br />
+          <span class="status-dot" :class="dsStateTone(ds.state)" />
+          数据源 {{ ds.source }} · {{ dsStateLabel(ds.state) }}<br />
           <span v-if="ds.lastOkAt" class="dim">更新于 {{ timeago(ds.lastOkAt) }}</span>
         </footer>
       </aside>
@@ -55,6 +60,7 @@ import DataSourceView from './views/DataSourceView.vue'
 import SettingsView from './views/SettingsView.vue'
 import AboutView from './views/AboutView.vue'
 import { api, onNotice } from '../api'
+import { dsStateLabel, dsStateTone } from '@shared/index'
 import { theme, setTheme } from './theme'
 import type { DataSourceStatus } from '@shared/index'
 
@@ -70,19 +76,28 @@ const tab = ref<(typeof tabs)[number]['key']>('watchlist')
 const ds = ref<DataSourceStatus>({ source: '-', state: '-', lastOkAt: null, latencyMs: null, primaryName: '-', standbyName: '-', failoverCount: 0 })
 let off: (() => void) | null = null
 let statusTimer: ReturnType<typeof setInterval> | null = null
+/** 行情源/网络事件提示（原来的实现把它写进 ds.source，导致侧栏显示整句话） */
+const notice = ref('')
+let noticeTimer: ReturnType<typeof setTimeout> | null = null
 
 onMounted(async () => {
   const s = await api.settingsGet()
   setTheme(s.theme ?? 'light')
   ds.value = await api.dataSourceStatus()
   statusTimer = setInterval(async () => { ds.value = await api.dataSourceStatus() }, 10_000)
-  off = onNotice((n) => { if (n.type === 'dataSource') ds.value = { ...ds.value, source: n.message } })
+  off = onNotice((n) => {
+    if (n.type !== 'dataSource' && n.type !== 'network') return
+    notice.value = n.message
+    if (noticeTimer) clearTimeout(noticeTimer)
+    noticeTimer = setTimeout(() => { notice.value = '' }, 6000)
+  })
   // 窗口重新聚焦时回读主题（设置页可能在别处改过）
   window.addEventListener('focus', onFocus)
 })
 onBeforeUnmount(() => {
   off?.()
   if (statusTimer) clearInterval(statusTimer)
+  if (noticeTimer) clearTimeout(noticeTimer)
   window.removeEventListener('focus', onFocus)
 })
 
@@ -152,6 +167,7 @@ async function toggleMaximize(): Promise<void> {
 .panel-root {
   display: flex;
   flex-direction: column;
+  position: relative;          /* 事件提示条以此为定位基准 */
   /* 窗口由 DWM 画原生圆角 + 阴影，内容铺满即可 */
   width: 100vw;
   height: 100vh;
@@ -235,12 +251,26 @@ async function toggleMaximize(): Promise<void> {
 }
 .status-dot {
   display: inline-block; width: 7px; height: 7px; border-radius: 50%;
-  background: #ff9f0a; margin-right: 4px;
+  background: var(--text-tertiary); margin-right: 4px;
 }
 .status-dot.ok { background: #30d158; }
+.status-dot.warn { background: #ff9f0a; }
+.status-dot.bad { background: #e2493b; }
 .src-status .dim { color: var(--text-tertiary); }
 
 .main { flex: 1; padding: 20px 14px 20px 24px; overflow: auto; background: var(--bg); }
+
+/* 行情源/网络事件提示条：浮在标题栏下方居中，6 秒自动消失 */
+.notice-bar {
+  position: absolute; top: 46px; left: 50%; transform: translateX(-50%);
+  z-index: 20; max-width: 72%;
+  padding: 6px 14px; border-radius: 8px;
+  background: var(--text); color: var(--bg);
+  font-size: 12px; line-height: 1.5; text-align: center;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+}
+.notice-fade-enter-active, .notice-fade-leave-active { transition: opacity .2s ease, transform .2s ease; }
+.notice-fade-enter-from, .notice-fade-leave-to { opacity: 0; transform: translate(-50%, -6px); }
 
 /* 滚动条跟随主题。Chromium 数字滚动条占 10px 宽度，右 padding 相应减去 10px，
    使卡片左右视觉间距一致（左 24 = 右 14 + 滚动条 10）。 */

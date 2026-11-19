@@ -1,11 +1,19 @@
 <template>
   <section>
-    <div class="toolbar">
+    <div class="page-head">
+      <div class="page-title">
+        <h1>提醒规则</h1>
+        <span class="count">{{ rules.length }} 条</span>
+      </div>
       <button class="primary" @click="newRule">＋ 新建规则</button>
-      <span class="hint">全局规则对所有自选生效；标的级规则只对单只生效。成交量倍数=当日量/近5日均量（盘中按时间折算），连涨连跌基于日K收盘价。</span>
     </div>
+    <p class="hint">全局规则对所有自选生效；标的级规则只对单只生效。成交量倍数 = 当日量 / 近 5 日均量（盘中按时间折算），连涨连跌基于日 K 收盘价。</p>
 
     <table class="rules-table">
+      <colgroup>
+        <col style="width:72px" /><col style="width:150px" /><col style="width:120px" />
+        <col style="width:132px" /><col style="width:132px" /><col style="width:96px" /><col />
+      </colgroup>
       <thead>
         <tr><th>范围</th><th>标的</th><th>指标</th><th>条件</th><th>冷却</th><th>状态</th><th>操作</th></tr>
       </thead>
@@ -16,14 +24,16 @@
           <td>{{ metricLabel(r.metric) }}</td>
           <td class="mono">{{ opLabel(r.op) }} {{ r.threshold }}{{ unitOf(r.metric) }}</td>
           <td>{{ cooldownLabel(r.cooldown) }}</td>
-          <td>
+          <td><span class="state-pill" :class="{ on: r.enabled }">{{ r.enabled ? '启用中' : '已停用' }}</span></td>
+          <td class="ops">
             <button class="mini" @click="editRule(r)">编辑</button>
-            <button class="mini" :class="{ off: !r.enabled }" @click="toggle(r)">{{ r.enabled ? '启用' : '停用' }}</button>
+            <button class="mini" @click="toggle(r)">{{ r.enabled ? '停用' : '启用' }}</button>
+            <button class="mini danger" @click="remove(r.id)">删除</button>
           </td>
-          <td><button class="mini" @click="remove(r.id)">删除</button></td>
         </tr>
       </tbody>
     </table>
+    <div v-if="!rules.length" class="empty">还没有规则，点右上角「＋ 新建规则」开始。</div>
 
     <div v-if="editing" class="editor">
       <h3>{{ isNew ? '新建规则' : '编辑规则' }}</h3>
@@ -158,15 +168,21 @@ function opLabel(o: string): string {
 </script>
 
 <style scoped>
-.toolbar { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; }
-.hint { font-size: 11px; color: var(--text-tertiary); }
+.page-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 6px; }
+.page-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.page-title h1 { font-size: 15px; font-weight: 600; color: var(--text); margin: 0; }
+.page-title .count { font-size: 11px; color: var(--text-tertiary); }
+.hint { font-size: 11px; color: var(--text-tertiary); line-height: 1.6; margin: 0 0 16px; }
 button.primary {
   background: var(--accent); border: none; color: #ffffff; border-radius: 7px; padding: 7px 14px;
   cursor: pointer; font-weight: 600; transition: background .15s;
+  flex: none;          /* 关键：不允许被同级说明文字压缩 */
+  white-space: nowrap;
 }
 button.primary:hover { background: var(--accent-hover); }
 .rules-table { width: 100%; border-collapse: collapse; font-size: 13px; background: var(--surface); border-radius: 8px; overflow: hidden; }
 .rules-table th, .rules-table td { padding: 9px 12px; border-bottom: 1px solid var(--border-soft); text-align: left; }
+.rules-table th:last-child, .rules-table td:last-child { text-align: right; }
 .rules-table th { color: var(--text-secondary); font-weight: 600; font-size: 11px; background: var(--surface); }
 .rules-table tr:last-child td { border-bottom: none; }
 .rules-table tbody tr:hover { background: var(--hover); }
@@ -193,5 +209,11 @@ button:hover { background: var(--hover); }
   background: var(--surface); color: var(--text); cursor: pointer;
 }
 .mini:hover { background: var(--hover); }
-.mini.off { color: var(--text-secondary); border-color: var(--border); }
+.mini.danger { color: #e2493b; }
+.mini.danger:hover { background: rgba(226,73,59,.1); border-color: rgba(226,73,59,.4); }
+.ops { white-space: nowrap; }
+.ops .mini + .mini { margin-left: 6px; }
+.state-pill { font-size: 11px; padding: 2px 9px; border-radius: 10px; background: var(--bg); color: var(--text-tertiary); white-space: nowrap; }
+.state-pill.on { background: rgba(29,185,84,.12); color: #1db954; }
+.empty { padding: 26px 0; text-align: center; font-size: 12px; color: var(--text-tertiary); }
 </style>

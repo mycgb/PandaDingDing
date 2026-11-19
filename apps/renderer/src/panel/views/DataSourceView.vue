@@ -3,16 +3,16 @@
     <div class="card">
       <h2>当前行情源</h2>
       <div class="status-line">
-        <span class="status-dot" :class="stateClass" />
+        <span class="status-dot" :class="stateTone" />
         <span class="source-name">{{ ds.source || '—' }}</span>
-        <span class="state-badge" :class="stateClass">{{ stateLabel }}</span>
+        <span class="state-badge" :class="stateTone">{{ stateLabel }}</span>
+        <span v-if="ds.lastOkAt" class="updated">更新于 {{ timeago(ds.lastOkAt) }}</span>
       </div>
       <div class="grid">
         <div class="stat"><span class="k">主数据源</span><span class="v">{{ ds.primaryName || '东方财富' }}</span></div>
         <div class="stat"><span class="k">备用数据源</span><span class="v">{{ ds.standbyName || '腾讯财经' }}</span></div>
         <div class="stat"><span class="k">最近请求耗时</span><span class="v">{{ ds.latencyMs === null ? '—' : ds.latencyMs + ' ms' }}</span></div>
         <div class="stat"><span class="k">累计切换次数</span><span class="v">{{ ds.failoverCount }}</span></div>
-        <div class="stat"><span class="k">最近成功</span><span class="v">{{ ds.lastOkAt ? timeago(ds.lastOkAt) : '—' }}</span></div>
       </div>
       <p class="hint">主源异常时自动切换到备用源；恢复稳定 30 秒后切回。港股 / 美股走同一容灾通道，场外基金走净值通道。</p>
     </div>
@@ -34,8 +34,9 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { api } from '../../api'
+import { dsStateLabel, dsStateTone } from '@shared/index'
 import type { DataSourceStatus } from '@shared/index'
 
 const ds = ref<DataSourceStatus>({
@@ -44,12 +45,9 @@ const ds = ref<DataSourceStatus>({
 })
 let timer: ReturnType<typeof setInterval> | null = null
 
-const stateLabel = () => ({
-  PRIMARY: '正常', FAILOVER: '备用源', DEGRADED: '降级', OFFLINE: '离线',
-}[ds.value.state] ?? ds.value.state)
-const stateClass = () => ({
-  PRIMARY: 'ok', FAILOVER: 'warn', DEGRADED: 'warn', OFFLINE: 'bad',
-}[ds.value.state] ?? '')
+/** 状态文案/色调走共享映射：模板里必须用 computed，写成函数会被当成函数源码渲染出来 */
+const stateLabel = computed(() => dsStateLabel(ds.value.state))
+const stateTone = computed(() => dsStateTone(ds.value.state))
 
 async function refresh(): Promise<void> {
   try { ds.value = await api.dataSourceStatus() } catch { /* 忽略 */ }
@@ -68,7 +66,8 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
 .ds-view { width: 100%; max-width: 760px; }
 .card { background: var(--surface); border: 1px solid var(--border-soft); border-radius: 12px; padding: 18px 22px; margin-bottom: 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
 h2 { font-size: 12px; color: var(--text-secondary); margin: 0 0 14px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }
-.status-line { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+.status-line { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+.updated { margin-left: auto; font-size: 11px; color: var(--text-tertiary); white-space: nowrap; }
 .status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--text-tertiary); flex: none; }
 .status-dot.ok { background: #1db954; }
 .status-dot.warn { background: #f5a623; }
@@ -78,7 +77,8 @@ h2 { font-size: 12px; color: var(--text-secondary); margin: 0 0 14px; font-weigh
 .state-badge.ok { background: rgba(29,185,84,.12); color: #1db954; }
 .state-badge.warn { background: rgba(245,166,35,.14); color: #c98614; }
 .state-badge.bad { background: rgba(226,73,59,.12); color: #e2493b; }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+/* 4 个指标一行排满（面板内容宽约 730px），窗口变窄时自动折行 */
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
 .stat { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; background: var(--bg); border-radius: 8px; }
 .stat .k { font-size: 11px; color: var(--text-tertiary); }
 .stat .v { font-size: 14px; color: var(--text); font-weight: 600; }
