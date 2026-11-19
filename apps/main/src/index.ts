@@ -17,7 +17,7 @@ import { registerIpc } from './ipc/handlers.ts'
 import { suggest, BUILTIN_ETF, parseClipboardCode } from './search/suggest.ts'
 import { setPetWindow } from './windows/petWindowAccess.ts'
 import { KlineService, bindFetch as bindKline } from './kline/KlineService.ts'
-import { IPC, phaseOf, isTradingDay, MARKET_INDICES, calcPosition, DEFAULT_SETTINGS, type AppSettings, type QuoteSnapshot, type WatchItem, type PetState, type ClosingReport, type TimeAlert } from '../../../packages/shared/src/index.ts'
+import { IPC, phaseOf, isTradingDay, MARKET_INDICES, calcPosition, dsSourceLabel, DEFAULT_SETTINGS, type AppSettings, type QuoteSnapshot, type WatchItem, type PetState, type ClosingReport, type TimeAlert } from '../../../packages/shared/src/index.ts'
 import { pathToFileURL } from 'node:url'
 
 const IS_DEV = !!process.env.PETTICKER_DEV
@@ -783,11 +783,13 @@ function createTray(): void {
  */
 function updateTrayBadge(pct: number | null, alerting: boolean): void {
   if (!tray) return
+  // 源名走中文映射，tooltip 里"东财"比"东方财富"更省地方
+  const srcLabel = dsSourceLabel(dsm.activeSource)
   const decision = decideBadge({
     pct, alerting,
     offline: dsm.currentState === 'OFFLINE',
     enabled: settings.trayBadge,
-    source: dsm.activeSource === '东方财富' ? '东财' : dsm.activeSource,
+    source: srcLabel === '东方财富' ? '东财' : srcLabel,
     snapshots: latestSnapshots,
     clickThrough: settings.clickThrough,
     dayPnl: portfolioDayPnl(),

@@ -4,13 +4,13 @@
       <h2>当前行情源</h2>
       <div class="status-line">
         <span class="status-dot" :class="stateTone" />
-        <span class="source-name">{{ ds.source || '—' }}</span>
+        <span class="source-name">{{ dsSourceLabel(ds.source) }}</span>
         <span class="state-badge" :class="stateTone">{{ stateLabel }}</span>
         <span v-if="ds.lastOkAt" class="updated">更新于 {{ timeago(ds.lastOkAt) }}</span>
       </div>
       <div class="grid">
-        <div class="stat"><span class="k">主数据源</span><span class="v">{{ ds.primaryName || '东方财富' }}</span></div>
-        <div class="stat"><span class="k">备用数据源</span><span class="v">{{ ds.standbyName || '腾讯财经' }}</span></div>
+        <div class="stat"><span class="k">主数据源</span><span class="v">{{ dsSourceLabel(ds.primaryName) }}</span></div>
+        <div class="stat"><span class="k">备用数据源</span><span class="v">{{ dsSourceLabel(ds.standbyName) }}</span></div>
         <div class="stat"><span class="k">最近请求耗时</span><span class="v">{{ ds.latencyMs === null ? '—' : ds.latencyMs + ' ms' }}</span></div>
         <div class="stat"><span class="k">累计切换次数</span><span class="v">{{ ds.failoverCount }}</span></div>
       </div>
@@ -36,7 +36,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { api } from '../../api'
-import { dsStateLabel, dsStateTone } from '@shared/index'
+import { dsSourceLabel, dsStateLabel, dsStateTone } from '@shared/index'
 import type { DataSourceStatus } from '@shared/index'
 
 const ds = ref<DataSourceStatus>({

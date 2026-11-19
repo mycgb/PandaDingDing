@@ -36,7 +36,7 @@
         </nav>
         <footer class="src-status">
           <span class="status-dot" :class="dsStateTone(ds.state)" />
-          数据源 {{ ds.source }} · {{ dsStateLabel(ds.state) }}<br />
+          数据源 {{ dsSourceLabel(ds.source) }} · {{ dsStateLabel(ds.state) }}<br />
           <span v-if="ds.lastOkAt" class="dim">更新于 {{ timeago(ds.lastOkAt) }}</span>
         </footer>
       </aside>
@@ -60,7 +60,7 @@ import DataSourceView from './views/DataSourceView.vue'
 import SettingsView from './views/SettingsView.vue'
 import AboutView from './views/AboutView.vue'
 import { api, onNotice } from '../api'
-import { dsStateLabel, dsStateTone } from '@shared/index'
+import { dsSourceLabel, dsStateLabel, dsStateTone } from '@shared/index'
 import { theme, setTheme } from './theme'
 import type { DataSourceStatus } from '@shared/index'
 
