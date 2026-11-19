@@ -1,6 +1,7 @@
 /** 统一域模型与 IPC 契约 —— 主进程与渲染进程共用 */
 
 export * from './market-calendar.ts'
+export * from './breath.ts'
 
 /** 市场号，与东方财富 MktNum / secid 前缀一致 */
 export type MarketType =

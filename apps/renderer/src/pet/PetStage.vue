@@ -10,6 +10,7 @@
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Application, Sprite, Texture } from 'pixi.js'
 import type { PetState } from '@shared/index'
+import { breathCurve } from '@shared/index'
 import { api } from '../api'
 
 const props = defineProps<{ state: PetState; skin: string }>()
@@ -28,6 +29,16 @@ interface ActionCfg {
   fps?: number
   from?: string        // 复用哪个动作的帧池（默认同名目录）
   start?: number       // 从源帧池的第几帧开始（1 基，默认 1）
+  /**
+   * 程序化呼吸：用单帧 + 正弦曲线做缩放，替代「多帧切换」。
+   * 多帧呼吸受绘制质量限制（AI 出的帧往往是整体位移而非腹部起伏），
+   * 逐帧切换必然顿挫；连续缩放是 60fps 平滑的。
+   */
+  breath?: {
+    periodMs?: number   // 一次呼吸周期，默认 4000
+    amountY?: number    // 纵向放大比例（0.035 = 峰值 +3.5%），默认 0.035
+    amountX?: number    // 纵向放大时横向压缩比例，保持体积感，默认 0.012
+  }
 }
 interface DisplayCfg { width?: number; height?: number; bottom?: number }
 interface SkinManifest {
@@ -54,10 +65,22 @@ let currentAction = ''
 let currentFrame = 0
 let frameTimer: ReturnType<typeof setInterval> | null = null
 let displayCfg: DisplayCfg = {}
+/** 缩放基准（由 display 决定）与朝向符号，呼吸只在这两个之上做叠加 */
+let baseScaleX = 1
+let baseScaleY = 1
+let facingSign = 1
+/** 呼吸定时器与当前参数 */
+let breathTimer: ReturnType<typeof setInterval> | null = null
+let breathStart = 0
+let breathPeriodMs = 4000
+let breathAmountX = 0.012
+let breathAmountY = 0.035
 
-/** 诊断对象：便于冒烟/调试时从 DevTools 读取 */
+/** 诊断对象：便于冒烟/调试时从 DevTools 读取（累加合并，避免后一次 diag 覆盖掉呼吸等标记） */
 function diag(extra: Record<string, unknown>): void {
-  ;(window as unknown as { __petDebug?: unknown }).__petDebug = {
+  const w = window as unknown as { __petDebug?: Record<string, unknown> }
+  w.__petDebug = {
+    ...(w.__petDebug ?? {}),
     skin: props.skin, action: currentAction, frame: currentFrame,
     pools: [...pools.keys()], display: displayCfg, ...extra,
   }
@@ -153,6 +176,23 @@ function playAction(action: string): void {
   const stepMs = Math.max(16, Math.round(1000 / fps))
 
   stopFrameTimer()
+  stopBreathTimer()
+
+  // 程序化呼吸：单帧 + 连续缩放（比多帧切换平滑得多，且不受 AI 出图质量影响）
+  if (cfg.breath) {
+    breathPeriodMs = cfg.breath.periodMs ?? 4000
+    breathAmountY = cfg.breath.amountY ?? 0.035
+    breathAmountX = cfg.breath.amountX ?? 0.012
+    breathStart = performance.now()
+    // 30fps 更新缩放即可（Pixi 仍在 rAF 上合成，肉眼看是连续的）
+    breathTimer = setInterval(() => {
+      applyScale(performance.now() - breathStart)
+    }, 33)
+    applyScale(0)
+    diag({ playing: key, breathing: true, periodMs: breathPeriodMs, amountY: breathAmountY })
+    return
+  }
+
   // 用 setInterval 驱动而非 Pixi ticker：
   // ticker 挂在 requestAnimationFrame 上，窗口被遮挡/系统节流时会掉到 1Hz，
   // 表现为"桌宠不动"。setInterval 在渲染进程关闭 backgroundThrottling 后
@@ -177,6 +217,25 @@ function playAction(action: string): void {
 
 function stopFrameTimer(): void {
   if (frameTimer !== null) { clearInterval(frameTimer); frameTimer = null }
+}
+
+function stopBreathTimer(): void {
+  if (breathTimer !== null) { clearInterval(breathTimer); breathTimer = null }
+}
+
+/**
+ * 应用缩放：基准 × 呼吸系数 × 朝向符号。
+ * 所有改缩放的地方都必须走这里，否则呼吸与朝向会互相覆盖。
+ */
+function applyScale(elapsedMs = 0): void {
+  if (!sprite) return
+  const f = breathCurve(elapsedMs, breathPeriodMs)
+  sprite.scale.x = baseScaleX * (1 - breathAmountX * f) * facingSign
+  sprite.scale.y = baseScaleY * (1 + breathAmountY * f)
+  // 供调试/冒烟读取，避免为了取缩放值反复截图
+  ;(window as unknown as { __petBreath?: unknown }).__petBreath = {
+    f: Number(f.toFixed(4)), scaleX: Number(sprite.scale.x.toFixed(4)), scaleY: Number(sprite.scale.y.toFixed(4)),
+  }
 }
 
 onMounted(async () => {
@@ -214,6 +273,7 @@ async function applySkin(skinId: string): Promise<void> {
   if (!idle) throw new Error('皮肤无可用帧')
 
   stopFrameTimer()
+  stopBreathTimer()
   if (sprite) {
     app?.stage.removeChild(sprite)
     sprite.destroy()
@@ -260,19 +320,24 @@ function applyDisplaySize(): void {
     sprite.height = th * scale
   }
   if (d.bottom !== undefined) sprite.y = STAGE_H - d.bottom
+  // 记下基准缩放：后续呼吸/朝向都在此之上叠加，不能直接改 scale
+  baseScaleX = Math.abs(sprite.scale.x)
+  baseScaleY = Math.abs(sprite.scale.y)
+  applyScale(0)
 }
 
 /** 漫游朝向：walk 且 facing=left 时水平翻转；其余动作恢复正向。 */
 function applyFacing(): void {
   if (!sprite) return
   const left = props.state.action === 'walk' && props.state.facing === 'left'
-  // scale.x 的绝对值由 applyDisplaySize 设置，这里只切换符号
-  sprite.scale.x = Math.abs(sprite.scale.x) * (left ? -1 : 1)
+  facingSign = left ? -1 : 1
+  applyScale(0)   // 切动作时呼吸归位，避免带着上一动作的幅度
   diag({ facing: left ? 'left' : 'right' })
 }
 
 onBeforeUnmount(() => {
   stopFrameTimer()
+  stopBreathTimer()
   app?.destroy(true)
 })
 
