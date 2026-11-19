@@ -191,6 +191,7 @@ function start(): void {
   ensureDefaultRule()
   ensureDefaultSkin()
   ensureDefaultTimeAlerts()
+  syncDisciplineRule()
 
   dsm = new DataSourceManager(log)
   dsm.on('notice', (n) => broadcast(IPC.push.systemNotice, n))
@@ -218,6 +219,7 @@ function start(): void {
       const prevBossEnabled = settings.bossKeyEnabled
       const prevBossAccel = settings.bossKeyAccelerator
       const prevIndexBar = settings.indexBarEnabled
+      const prevChase = settings.chaseHighPct
       settings = s
       // 皮肤更换：基础托盘图可能变化，强制重建图标
       if (s.skin !== prevSkin) {
@@ -237,6 +239,8 @@ function start(): void {
         if (s.indexBarEnabled) { createIndexWindow(); void pollOnce() }
         else { indexWin?.close(); indexWin = null; latestIndexQuotes = [] }
       }
+      // 防追高阈值变了：同步内置规则（改数字即生效，不必重启）
+      if (s.chaseHighPct !== prevChase) syncDisciplineRule()
       // 免打扰时段改了要立刻反映到桌宠（否则要等下一轮轮询才躺下/起身）
       pushPetState()
     },
@@ -360,6 +364,34 @@ function ensureDefaultRule(): void {
   }
 }
 
+/* ---------- 交易纪律 ---------- */
+
+const DISCIPLINE_RULE_ID = 'discipline-chase'
+
+/**
+ * 防追高：把设置里的阈值同步成一条内置规则。
+ * 用规则系统实现而不是另写判定 —— 冷却、去重、免打扰、提醒历史全部复用，
+ * 用户也能在规则页看到并自行微调阈值。
+ */
+function syncDisciplineRule(): void {
+  const pct = settings.chaseHighPct
+  try {
+    if (!Number.isFinite(pct) || pct <= 0) {
+      store.deleteRule(DISCIPLINE_RULE_ID)
+      return
+    }
+    store.upsertRule({
+      id: DISCIPLINE_RULE_ID,
+      scope: 'global',
+      metric: 'changePct',
+      op: 'above',
+      threshold: Math.min(20, Math.max(0.1, pct)),
+      cooldown: 'oncePerDay',
+      enabled: true,
+    })
+  } catch (e) { log('同步防追高规则失败:', e) }
+}
+
 /* ---------- 定时时点提醒 ---------- */
 
 /** 上班盯盘最容易错过的几个时点（首次启动写入，用户可改可删） */
@@ -401,7 +433,7 @@ function checkTimeAlerts(): void {
   try {
     const now = new Date()
     const hm = fmtHM(now)
-    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+    const today = localDateStr(now)
     for (const a of store.dueTimeAlerts(hm, today)) {
       // 工作日限定：周末与节假日不响
       if (a.workdayOnly && !isTradingDay(now)) continue
@@ -811,6 +843,14 @@ function shortAccel(a: string): string {
 
 /* ---------- 轮询与提醒 ---------- */
 
+/** 当日提醒上限的"已提示"标记所在日期（跨日自动重置） */
+let alertCapNotifiedDate: string | null = null
+
+/** 本地日期 YYYY-MM-DD（不能用 toISOString：那是 UTC，晚上会差一天） */
+function localDateStr(d: Date = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 async function pollOnce(): Promise<void> {
   const wl = store.listWatchlist()
   const withIndex = settings.indexBarEnabled
@@ -840,6 +880,18 @@ async function pollOnce(): Promise<void> {
     s.speedPct = speedTracker.speedOf(s.secId, now)
     s.atLimit = limitStateOf({ price: s.price, prevClose: s.prevClose, code: s.code, name: s.name, market: s.market })
   }
+  // 每日提醒上限：到了就不再判定（避免一天被十几条气泡打断工作）
+  const maxAlerts = settings.maxAlertsPerDay
+  if (maxAlerts > 0 && store.countAlertEventsToday() >= maxAlerts) {
+    const today = localDateStr()
+    if (alertCapNotifiedDate !== today) {
+      alertCapNotifiedDate = today
+      log('当日提醒已达上限', maxAlerts, '条，今日不再提醒')
+      broadcast(IPC.push.systemNotice, { type: 'info', message: `今日提醒已达上限（${maxAlerts} 条），今天不再打扰` })
+    }
+    pushPetState()
+    return
+  }
   alertEngine.feed(latestSnapshots)
   pushPetState()
 }
@@ -854,11 +906,11 @@ function onAlertFired(e: import('../../../packages/shared/src/index.ts').AlertEv
 
 function onPhaseChange(p: import('../../../packages/shared/src/index.ts').MarketPhase): void {
   broadcast(IPC.push.systemNotice, { type: 'phase', message: PHASE_LABEL[p] ?? p })
-  if (p === 'closed') generateClosingReport()
+  if (p === 'closed') void generateClosingReport()
 }
 
-/** 收盘总结报告（P2）：统计红绿盘、组合涨跌、领涨领跌，落库并可回看 */
-function generateClosingReport(): void {
+/** 收盘总结报告（P2）：统计红绿盘、组合涨跌、领涨领跌、当日盈亏与大盘对比，落库并可回看 */
+async function generateClosingReport(): Promise<void> {
   if (!settings.closingReport) { log('收盘报告已关闭，跳过'); return }
   const snaps = latestSnapshots.filter((s) => s.changePct !== null && s.changePct !== undefined)
   if (snaps.length === 0) { log('收盘报告：无有效快照，跳过'); return }
@@ -872,13 +924,29 @@ function generateClosingReport(): void {
     .map((s) => ({ name: s.name, code: s.code, changePct: s.changePct as number }))
   const topLosers = [...down].sort((a, b) => (a.changePct ?? 0) - (b.changePct ?? 0)).slice(0, 5)
     .map((s) => ({ name: s.name, code: s.code, changePct: s.changePct as number }))
+
+  // 持仓当日盈亏 + 沪深300 对比：让日报能回答"今天到底赚没赚、跑没跑赢大盘"
+  const dayPnl = portfolioDayPnl()
+  let indexPct: number | null = null
+  try {
+    const idx = await dsm.fetchAll([{ market: 1, code: '000300' }])
+    indexPct = idx.find((s) => s.code === '000300')?.changePct ?? null
+  } catch (e) { log('收盘报告：沪深300 拉取失败', e) }
+  // 只统计当天的触发次数，否则历史累计会把日报数字撑得没意义
+  const alertCount = store.countAlertEventsToday()
+
   const pctStr = pct === null ? '--' : `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`
+  const parts = [`今日自选 ${up.length}红${down.length}绿${flat ? ` ${flat}平` : ''}，组合 ${pctStr}`]
+  if (dayPnl !== null) parts.push(`盈亏 ${dayPnl >= 0 ? '+' : '-'}${Math.abs(dayPnl).toFixed(0)} 元`)
+  if (indexPct !== null) parts.push(`沪深300 ${indexPct >= 0 ? '+' : ''}${indexPct.toFixed(2)}%`)
+
   const report: ClosingReport = {
-    date: new Date().toISOString().slice(0, 10),
+    date: localDateStr(),
     generatedAt: new Date().toISOString(),
     total: snaps.length, upCount: up.length, downCount: down.length, flatCount: flat,
     portfolioPct: pct, topGainers, topLosers,
-    headline: `今日自选 ${up.length}红${down.length}绿${flat ? ` ${flat}平` : ''}，组合 ${pctStr}`,
+    headline: parts.join('，'),
+    dayPnl, indexPct, alertCount,
   }
   try {
     store.upsertClosingReport(report)

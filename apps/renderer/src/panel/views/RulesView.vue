@@ -20,7 +20,10 @@
       <tbody>
         <tr v-for="r in rules" :key="r.id">
           <td>{{ r.scope === 'global' ? '全局' : '标的' }}</td>
-          <td>{{ r.scope === 'global' ? '—' : nameOf(r.secId!) }}</td>
+          <td>
+            <span v-if="r.id === 'discipline-chase'" class="tag-sys">交易纪律</span>
+            <template v-else>{{ r.scope === 'global' ? '—' : nameOf(r.secId!) }}</template>
+          </td>
           <td>{{ metricLabel(r.metric) }}</td>
           <td class="mono">{{ r.metric === 'atLimit' ? '触发即报' : `${opLabel(r.op)} ${r.threshold}${unitOf(r.metric)}` }}</td>
           <td>{{ cooldownLabel(r.cooldown) }}</td>
@@ -302,6 +305,7 @@ button:hover { background: var(--hover); }
 .ops .mini + .mini { margin-left: 6px; }
 .state-pill { font-size: 11px; padding: 2px 9px; border-radius: 10px; background: var(--bg); color: var(--text-tertiary); white-space: nowrap; }
 .state-pill.on { background: rgba(29,185,84,.12); color: #1db954; }
+.tag-sys { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: rgba(255,159,10,.14); color: #d98500; white-space: nowrap; }
 .empty { padding: 26px 0; text-align: center; font-size: 12px; color: var(--text-tertiary); }
 .section-head { display: flex; align-items: baseline; gap: 8px; margin: 28px 0 6px; }
 .section-head h2 { font-size: 15px; font-weight: 600; color: var(--text); margin: 0; }

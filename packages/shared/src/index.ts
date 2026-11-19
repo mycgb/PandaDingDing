@@ -174,6 +174,12 @@ export interface ClosingReport {
   topGainers: { name: string; code: string; changePct: number }[]
   topLosers: { name: string; code: string; changePct: number }[]
   headline: string
+  /** 持仓当日盈亏（元）；未记录持仓时为 null */
+  dayPnl?: number | null
+  /** 当日触发提醒次数 */
+  alertCount?: number
+  /** 沪深300 当日涨跌 %，用于对比是否跑赢大盘 */
+  indexPct?: number | null
 }
 
 export interface AppSettings {
@@ -200,6 +206,10 @@ export interface AppSettings {
   bossKeyAccelerator: string  // 老板键组合键（Electron Accelerator 格式）
   indexBarEnabled: boolean // 指数温度条：桌面角落常驻一条大盘指数（默认开）
   indexBarPosition: { x: number; y: number } | null  // 温度条窗口位置
+  /** 交易纪律：防追高阈值（自选涨幅 ≥ 该值提醒一次），0 = 关闭 */
+  chaseHighPct: number
+  /** 交易纪律：每日提醒条数上限，0 = 不限（防提醒轰炸） */
+  maxAlertsPerDay: number
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -226,6 +236,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   bossKeyAccelerator: 'CommandOrControl+Shift+H',
   indexBarEnabled: true,
   indexBarPosition: null,
+  chaseHighPct: 7,
+  maxAlertsPerDay: 0,
 }
 
 /* ---------- IPC channel 白名单 ---------- */

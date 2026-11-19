@@ -160,6 +160,14 @@ export class DataStore {
     ).run(secId)
   }
 
+  /** 当日已触发提醒条数（每日上限用，COUNT 比 listAlertEvents 轻得多） */
+  countAlertEventsToday(): number {
+    const r = this.db.prepare(
+      "SELECT COUNT(*) AS c FROM alert_events WHERE date(triggered_at) = date('now','localtime')",
+    ).get() as Row
+    return Number(r.c)
+  }
+
   /* ---------- time alerts（定时时点提醒） ---------- */
 
   private mapTimeAlert(r: Row): TimeAlert {

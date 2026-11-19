@@ -135,6 +135,24 @@
     </div>
 
     <div class="card">
+      <h2>交易纪律</h2>
+      <label class="row">
+        <span>防追高阈值（涨幅 ≥ 则提醒，0 = 关闭）</span>
+        <input type="number" class="size-input" min="0" max="20" step="0.5"
+               v-model.number="s.chaseHighPct" @change="save" /> %
+      </label>
+      <label class="row">
+        <span>每日提醒上限（0 = 不限）</span>
+        <input type="number" class="size-input" min="0" max="50" step="1"
+               v-model.number="s.maxAlertsPerDay" @change="save" /> 条
+      </label>
+      <div class="hint">
+        防追高到点会提醒一次（当日一次），并在提醒规则页标记为「交易纪律」，可自行调阈值或停用。<br />
+        每日提醒上限用于防止轰炸：当天触发满额后不再弹气泡，次日自动恢复。
+      </div>
+    </div>
+
+    <div class="card">
       <h2>收盘总结报告</h2>
       <button class="mini" @click="loadReports">刷新</button>
       <div v-if="reports.length === 0" class="empty">暂无收盘报告（每个交易日收盘后自动生成）</div>
@@ -152,6 +170,7 @@
         <div v-if="r.topLosers.length" class="report-line">
           领跌：<span v-for="l in r.topLosers" :key="l.code" class="down">{{ l.name }} {{ l.changePct }}% </span>
         </div>
+        <div v-if="r.alertCount" class="report-line">当日触发提醒 {{ r.alertCount }} 次</div>
       </div>
     </div>
 
