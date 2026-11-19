@@ -12,7 +12,7 @@
     "sleepy":      { "frames": 47, "loop": true, "from": "idle" },
     "panic-happy": { "frames": 3, "loop": false, "from": "happy", "next": "idle", "fps": 10 },
     "panic-sad":   { "frames": 4, "loop": false, "from": "sad", "next": "idle", "fps": 8 },
-    "walk":        { "frames": 47, "loop": true, "from": "idle" },
+    "walk":        { "frames": 4, "loop": true, "fps": 9 },
     "sleep":       { "frames": 1, "loop": false, "from": "idle", "start": 1 },
     "offline":     { "frames": 1, "loop": false, "from": "idle", "start": 1 }
   }
