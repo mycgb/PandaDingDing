@@ -235,10 +235,9 @@ function start(): void {
         refreshTray()
       }
       // 指数温度条开关：即时建/销窗口，并立刻拉一次指数（不必等下一轮轮询）
-      if (s.indexBarEnabled !== prevIndexBar) {
-        if (s.indexBarEnabled) { createIndexWindow(); void pollOnce() }
-        else { indexWin?.close(); indexWin = null; latestIndexQuotes = [] }
-      }
+      applyIndexBarSwitch(s.indexBarEnabled, prevIndexBar)
+      // 托盘里的「显示/隐藏指数温度条」文案要跟着变
+      if (s.indexBarEnabled !== prevIndexBar) refreshTray()
       // 防追高阈值变了：同步内置规则（改数字即生效，不必重启）
       if (s.chaseHighPct !== prevChase) syncDisciplineRule()
       // 免打扰时段改了要立刻反映到桌宠（否则要等下一轮轮询才躺下/起身）
@@ -670,6 +669,24 @@ function createIndexWindow(): void {
   indexWin.on('closed', () => { indexWin = null })
 }
 
+/** 开关指数温度条时同步窗口与数据：设置页勾选框和托盘菜单共用这一处逻辑 */
+function applyIndexBarSwitch(enabled: boolean, prev: boolean): void {
+  if (enabled === prev) return
+  if (enabled) { createIndexWindow(); void pollOnce() }
+  else { indexWin?.close(); indexWin = null; latestIndexQuotes = [] }
+}
+
+/** 托盘里直接切换指数温度条：等价于设置页那个勾选框（落库 + 通知面板刷新） */
+function toggleIndexBar(): void {
+  const next = !settings.indexBarEnabled
+  const prev = settings.indexBarEnabled
+  store.setSetting('indexBarEnabled', next)
+  settings = { ...settings, indexBarEnabled: next }
+  applyIndexBarSwitch(next, prev)
+  broadcast(IPC.push.settingsChanged, settings)
+  refreshTray()
+}
+
 function setPetVisible(visible: boolean): void {
   // 显式要求显示 → 同时退出老板键隐身态，避免"点了显示却看不到"
   if (visible && bossHidden) { bossHidden = false; refreshTray() }
@@ -810,6 +827,10 @@ function refreshTray(): void {
   items.push(
     { label: '打开管理面板', click: () => createPanelWindow() },
     { label: settings.petVisible ? '隐藏桌宠' : '显示桌宠', click: () => setPetVisible(!settings.petVisible) },
+    {
+      label: settings.indexBarEnabled ? '隐藏指数温度条' : '显示指数温度条',
+      click: () => toggleIndexBar(),
+    },
     {
       label: bossHidden
         ? '🔒 已隐藏（点击恢复显示）'
