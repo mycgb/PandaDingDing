@@ -98,8 +98,12 @@ jobs:
 
       # 注意：不要在此设置 NODE_ENV=production，否则 pnpm install 会跳过 devDependencies，
       # 导致 vite / esbuild / electron 缺失，构建直接失败。
+      # pnpm 11 在 CI 下把「依赖的 build 脚本未批准」升级为错误（ERR_PNPM_IGNORED_BUILDS）：
+      # electron / electron-winstaller 的 install 脚本被跳过即 exit 1。这些脚本对打包非必需
+      # （electron 二进制由 electron-builder 下载、better-sqlite3 由 npmRebuild 重建），
+      # 故用 strict-dep-builds=false 把未批准脚本降级为警告，保留 frozen-lockfile 的确定性。
       - name: install deps
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --config.strict-dep-builds=false
 
       - name: build source
         run: pnpm build
