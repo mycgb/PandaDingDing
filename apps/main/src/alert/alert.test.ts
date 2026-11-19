@@ -159,6 +159,23 @@ assert.equal(isDndNow([{ start: '23:00', end: '01:00' }], true, new Date('2026-1
 assert.equal(isDndNow([{ start: '23:00', end: '01:00' }], true, new Date('2026-11-17T00:30:00')), true)
 assert.equal(isDndNow([{ start: '23:00', end: '01:00' }], true, new Date('2026-11-17T10:00:00')), false)
 
+// 默认休息时段（午休 11:30-13:00 + 夜间 15:00-09:25）：桌宠的作息就靠这两段
+{
+  const REST = [{ start: '11:30', end: '13:00' }, { start: '15:00', end: '09:25' }]
+  const at = (t: string) => isDndNow(REST, true, new Date(`2026-11-17T${t}:00`))
+  assert.equal(at('11:29'), false)   // 上午盘中
+  assert.equal(at('11:30'), true)    // 午休
+  assert.equal(at('12:59'), true)
+  assert.equal(at('13:00'), false)   // 下午开盘
+  assert.equal(at('14:59'), false)
+  assert.equal(at('15:00'), true)    // 收盘
+  assert.equal(at('23:30'), true)
+  assert.equal(at('03:00'), true)    // 跨午夜
+  assert.equal(at('09:24'), true)    // 开盘前还在休息
+  assert.equal(at('09:25'), false)   // 09:25 起床看盘
+  assert.equal(at('10:00'), false)
+}
+
 /* ---------- 异动雷达：3 分钟涨速 ---------- */
 {
   const { engine } = makeEngine({ metric: 'speedPct', op: 'absAbove', threshold: 1.5 })

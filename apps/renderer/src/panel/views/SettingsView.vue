@@ -79,17 +79,25 @@
     </div>
 
     <div class="card">
-      <h2>免打扰</h2>
+      <h2>休息 / 免打扰</h2>
       <label class="row">
-        <span>启用免打扰</span>
+        <span>启用（时段内小熊躺下休息，提醒也静默）</span>
         <input type="checkbox" v-model="s.dndEnabled" @change="save" />
       </label>
       <div v-for="(r, i) in s.dndRanges" :key="i" class="row range-row">
         <input type="time" v-model="r.start" @change="save" /> —
         <input type="time" v-model="r.end" @change="save" />
+        <span class="range-tag">{{ rangeLabel(r) }}</span>
         <button class="mini" @click="removeRange(i)">删除</button>
       </div>
-      <button class="mini" @click="addRange">＋ 添加时段</button>
+      <div class="row range-row actions">
+        <button class="mini" @click="addRange">＋ 添加时段</button>
+        <button class="mini" @click="restoreRestRanges">恢复默认休息时段</button>
+      </div>
+      <div class="hint">
+        默认两段：午休 11:30–13:00、夜间 15:00–次日 09:25（跨午夜自动识别）。交易日只有 09:25–11:30 和 13:00–15:00
+        小熊是活动的，其余时间按这里的时段躺下休息；时段可以随便改、加、删，<b>全部删掉它就一直在活动中</b>（周末与节假日仍会休息）。
+      </div>
     </div>
 
     <div class="card">
@@ -201,6 +209,7 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { api } from '../../api'
 import { setTheme as applyTheme } from '../theme'
+import { DEFAULT_REST_RANGES } from '@shared/index'
 import type { AlertEvent, AppSettings, SkinInfo, ClosingReport } from '@shared/index'
 
 const s = ref<AppSettings | null>(null)
@@ -285,6 +294,24 @@ function removeRange(i: number): void {
   s.value?.dndRanges.splice(i, 1)
   save()
 }
+/** 时段用途标签：命中预置的两段就标出来，方便用户看清哪条是午休、哪条是夜间 */
+function rangeLabel(r: { start: string; end: string }): string {
+  const k = `${r.start}-${r.end}`
+  if (k === '11:30-13:00') return '午休'
+  if (k === '15:00-09:25') return '夜间（跨午夜）'
+  return '自定义'
+}
+/** 一键把两段默认休息时段补回来（用户删掉后想恢复时用） */
+async function restoreRestRanges(): Promise<void> {
+  if (!s.value) return
+  const list = s.value.dndRanges
+  for (const d of DEFAULT_REST_RANGES) {
+    if (!list.some((x) => x.start === d.start && x.end === d.end)) list.push({ ...d })
+  }
+  list.sort((a, b) => a.start.localeCompare(b.start))
+  s.value.dndEnabled = true
+  await save()
+}
 async function loadHistory(): Promise<void> {
   history.value = await api.alertHistory()
 }
@@ -337,6 +364,8 @@ h2 {
 }
 .segmented button:hover:not(.selected) { color: var(--text); }
 .range-row { margin-left: 220px; }
+.range-row.actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.range-tag { font-size: 11px; color: var(--text-secondary); background: var(--bg); border-radius: 9px; padding: 2px 8px; margin-left: 2px; }
 .mini {
   padding: 3px 10px; font-size: 11px; border-radius: 6px; border: 1px solid var(--border);
   background: var(--surface); color: var(--text); cursor: pointer; margin: 6px 0;

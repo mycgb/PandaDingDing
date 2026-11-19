@@ -17,7 +17,7 @@ import { registerIpc } from './ipc/handlers.ts'
 import { suggest, BUILTIN_ETF, parseClipboardCode } from './search/suggest.ts'
 import { setPetWindow } from './windows/petWindowAccess.ts'
 import { KlineService, bindFetch as bindKline } from './kline/KlineService.ts'
-import { IPC, phaseOf, isTradingDay, MARKET_INDICES, calcPosition, dsSourceLabel, DEFAULT_SETTINGS, type AppSettings, type QuoteSnapshot, type WatchItem, type PetState, type ClosingReport, type TimeAlert } from '../../../packages/shared/src/index.ts'
+import { IPC, phaseOf, isTradingDay, MARKET_INDICES, calcPosition, dsSourceLabel, DEFAULT_SETTINGS, DEFAULT_REST_RANGES, type AppSettings, type QuoteSnapshot, type WatchItem, type PetState, type ClosingReport, type TimeAlert } from '../../../packages/shared/src/index.ts'
 import { pathToFileURL } from 'node:url'
 
 const IS_DEV = !!process.env.PETTICKER_DEV
@@ -191,6 +191,7 @@ function start(): void {
   ensureDefaultRule()
   ensureDefaultSkin()
   ensureDefaultTimeAlerts()
+  ensureRestRanges()
   syncDisciplineRule()
 
   dsm = new DataSourceManager(log)
@@ -423,6 +424,33 @@ function ensureDefaultTimeAlerts(): void {
     }
     log('已写入默认定时提醒', DEFAULT_TIME_ALERTS.length, '条')
   } catch (e) { log('写入默认定时提醒失败:', e) }
+}
+
+/**
+ * 把「默认休息时段」并入免打扰列表（只做一次）。
+ * 免打扰列表同时就是桌宠的休息时段表：可以改时间、加时段，也可以整条删掉；
+ * 删光后桌宠不再按时间休息（休市日除外）。用 restRangesSeeded 标记保证只播种一次，
+ * 否则用户删掉后下次启动又被塞回来。
+ */
+function ensureRestRanges(): void {
+  try {
+    if (settings.restRangesSeeded) return
+    const merged: { start: string; end: string }[] = [...(settings.dndRanges ?? [])]
+    for (const r of DEFAULT_REST_RANGES) {
+      if (!merged.some((x) => x.start === r.start && x.end === r.end)) merged.push({ ...r })
+    }
+    merged.sort((a, b) => a.start.localeCompare(b.start))
+    settings.dndRanges = merged
+    settings.restRangesSeeded = true
+    store.setSetting('dndRanges', merged)
+    store.setSetting('restRangesSeeded', true)
+    // 开关一并打开：时段写进去却因为开关是关的而不生效，比不写更让人困惑
+    if (!settings.dndEnabled) {
+      settings.dndEnabled = true
+      store.setSetting('dndEnabled', true)
+    }
+    log('已把默认休息时段并入免打扰列表:', merged.map((r) => `${r.start}-${r.end}`).join(', '))
+  } catch (e) { log('写入默认休息时段失败:', e) }
 }
 
 let timeAlertTimer: NodeJS.Timeout | null = null
@@ -1015,7 +1043,8 @@ function pushPetState(): void {
     alertActive: Date.now() < alertHoldUntil,
     alertDirection: lastAlertDirection ?? 'up',
     offline: dsm.currentState === 'OFFLINE',
-    // 与提醒静默同源：免打扰时段桌宠也躺下睡觉（设置页 dndEnabled + dndRanges）
+    // 免打扰列表 = 桌宠的休息时段表：默认含午休 11:30-13:00 与夜间 15:00-09:25，用户可增删
+    // （删光后桌宠在交易日就一直按情绪活动，休市日仍然睡）
     dnd: isDndNow(settings.dndRanges, settings.dndEnabled, now),
     phase: phaseOf(now),
     pct,

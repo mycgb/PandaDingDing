@@ -24,14 +24,16 @@ export function baseMoodState(pct: number | null, th: MoodThresholds): PetState 
   return { action: 'idle' }
 }
 
-/** 时段 → 附加状态覆盖（盘后睡觉等） */
 /**
- * 时段 → 桌宠附加状态。
- * 盘后/周末/节假日不再静止"睡觉"，而是降速播放（sleepy），保证桌宠持续有生命感；
+ * 休市日 → 桌宠附加状态。
+ * 周末 / 节假日整天躺下休息（这两天没有行情，醒来也无事可做）。
+ * 注意：交易日里的「午休 / 收盘后 / 开盘前」**不再由代码写死**，一律交给设置页的
+ * 免打扰（休息）时段判定 —— 用户想删就删，删光后桌宠就一直按情绪活动。
+ * 盘后也不再静止"睡觉"，sleepy 是降速播放的呼吸动作，保证桌宠持续有生命感；
  * 仅"离线"一种情况静止（offline 动作），因为此时没有任何数据可展示。
  */
-export function phasePetOverride(phase: MarketPhase): PetState | null {
-  if (phase === 'closed' || phase === 'weekend' || phase === 'holiday') return { action: 'sleepy', reason: phase }
+export function restDayOverride(phase: MarketPhase): PetState | null {
+  if (phase === 'weekend' || phase === 'holiday') return { action: 'sleepy', reason: phase }
   return null
 }
 
@@ -47,7 +49,7 @@ export function roamDecision(base: PetState, roamActive: boolean, facing?: 'left
 }
 
 /**
- * 状态优先级（文档 §7.3）：alert > offline > 免打扰(dnd) > 时段(sleepy) > mood(+walk)
+ * 状态优先级：alert > offline > 免打扰(dnd) > 休市日(sleepy) > mood(+walk)
  * 注意：桌宠永远有一个"在播放"的动作，不存在完全静止的时段（sleepy 只是躺下呼吸）。
  * walk 由 RoamController 调度，只在中性 idle 且控制器放行时接管。
  */
@@ -55,7 +57,7 @@ export function resolvePetState(input: {
   alertActive?: boolean
   alertDirection?: 'up' | 'down'
   offline?: boolean
-  /** 命中设置页的免打扰时段（dndRanges）：与提醒静默同源，桌宠直接躺下睡觉 */
+  /** 命中设置页的免打扰 / 休息时段（dndRanges）：与提醒静默同源，桌宠直接躺下睡觉 */
   dnd?: boolean
   phase: MarketPhase
   pct: number | null
@@ -69,9 +71,9 @@ export function resolvePetState(input: {
       : { action: 'panic-happy', reason: 'alert' }
   }
   if (input.offline) return { action: 'offline', reason: 'offline' }
-  // 免打扰优先于时段与情绪：用户设这个时段就是不想被打扰，桌宠也一起睡
+  // 免打扰优先于休市日与情绪：用户设这个时段就是不想被打扰，桌宠也一起睡
   if (input.dnd) return { action: 'sleepy', reason: 'dnd' }
-  const o = phasePetOverride(input.phase)
+  const o = restDayOverride(input.phase)
   if (o) return o
   const base = baseMoodState(input.pct, input.thresholds)
   return roamDecision(base, input.roamActive ?? false, input.roamFacing)

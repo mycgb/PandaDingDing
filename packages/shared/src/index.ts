@@ -127,7 +127,7 @@ export interface AlertEvent {
 }
 
 export interface PetState {
-  action: 'idle' | 'idle-smile' | 'idle-frown' | 'happy' | 'sad' | 'panic-happy' | 'panic-sad' | 'sleep' | 'walk' | 'offline'
+  action: 'idle' | 'idle-smile' | 'idle-frown' | 'happy' | 'sad' | 'panic-happy' | 'panic-sad' | 'sleepy' | 'sleep' | 'walk' | 'offline'
   reason?: string
   /** 漫游朝向：渲染层据此水平翻转 walk 帧；'left' 时朝左 */
   facing?: 'left' | 'right'
@@ -212,14 +212,28 @@ export interface AppSettings {
   maxAlertsPerDay: number
   /** 行情源切换提示：切到备用源 / 主源恢复时是否弹提示条（默认开） */
   dsNoticeEnabled: boolean
+  /** 默认休息时段是否已并入免打扰列表（一次性迁移标记，避免用户删光后又被塞回来） */
+  restRangesSeeded?: boolean
 }
+
+/**
+ * 默认休息时段：午休 + 收盘后到次日开盘前。
+ * 桌宠只在这两段之外、且是交易日的 09:25–11:30 / 13:00–15:00 保持活动；
+ * 时段存在免打扰列表里，用户可以自己改时间或整条删掉（删光后桌宠就一直按情绪活动）。
+ * 15:00–09:25 跨午夜，isDndNow 已按 t >= start || t < end 处理。
+ */
+export const DEFAULT_REST_RANGES: { start: string; end: string }[] = [
+  { start: '11:30', end: '13:00' },
+  { start: '15:00', end: '09:25' },
+]
 
 export const DEFAULT_SETTINGS: AppSettings = {
   pollIntervalMs: 3000,
   moodUpThreshold: 0.5,
   moodDownThreshold: -0.5,
   dndEnabled: true,
-  dndRanges: [{ start: '12:00', end: '13:00' }],
+  // 拷贝一份：UI 里 push/splice 这个数组，不能改动模块级常量
+  dndRanges: DEFAULT_REST_RANGES.map((r) => ({ ...r })),
   soundEnabled: true,
   petPosition: null,
   clickThrough: false,

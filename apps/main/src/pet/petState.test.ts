@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { portfolioPct, resolvePetState, baseMoodState, phasePetOverride, roamDecision } from './petState.ts'
+import { portfolioPct, resolvePetState, baseMoodState, restDayOverride, roamDecision } from './petState.ts'
 import type { QuoteSnapshot, WatchItem } from '../../../../packages/shared/src/index.ts'
 
 const w = (secId: string, weight = 1): WatchItem => ({
@@ -29,20 +29,28 @@ assert.equal(baseMoodState(-1.2, { up: 0.5, down: -0.5 }).action, 'idle-frown')
 assert.equal(baseMoodState(0.2, { up: 0.5, down: -0.5 }).action, 'idle')
 assert.equal(baseMoodState(null, { up: 0.5, down: -0.5 }).action, 'idle')
 
-// phase override
-assert.equal(phasePetOverride('closed')?.action, 'sleepy')
-assert.equal(phasePetOverride('weekend')?.action, 'sleepy')
-assert.equal(phasePetOverride('continuous'), null)
+// 休市日覆盖：周末/节假日睡觉；交易日不再由代码决定睡不睡（交给免打扰列表）
+assert.equal(restDayOverride('weekend')?.action, 'sleepy')
+assert.equal(restDayOverride('holiday')?.action, 'sleepy')
+assert.equal(restDayOverride('closed'), null)
+assert.equal(restDayOverride('lunch'), null)
+assert.equal(restDayOverride('continuous'), null)
 
 // resolvePetState 优先级
 const th = { up: 0.5, down: -0.5 }
 assert.equal(resolvePetState({ alertActive: true, alertDirection: 'up', phase: 'continuous', pct: 0, thresholds: th }).action, 'panic-happy')
 assert.equal(resolvePetState({ alertActive: true, alertDirection: 'down', phase: 'continuous', pct: 0, thresholds: th }).action, 'panic-sad')
 assert.equal(resolvePetState({ offline: true, phase: 'continuous', pct: 5, thresholds: th }).action, 'offline')
-// 盘后不再静止：降速播放 sleepy
-assert.equal(resolvePetState({ phase: 'closed', pct: 5, thresholds: th }).action, 'sleepy')
+// 休市日：不经免打扰也睡
 assert.equal(resolvePetState({ phase: 'weekend', pct: -5, thresholds: th }).action, 'sleepy')
 assert.equal(resolvePetState({ phase: 'holiday', pct: -5, thresholds: th }).action, 'sleepy')
+// 交易日的午休/盘后不再自动睡：没命中休息时段就按情绪站着
+assert.equal(resolvePetState({ phase: 'lunch', pct: 5, thresholds: th }).action, 'idle-smile')
+assert.equal(resolvePetState({ phase: 'closed', pct: 5, thresholds: th }).action, 'idle-smile')
+assert.equal(resolvePetState({ phase: 'preOpen', pct: 0, thresholds: th }).action, 'idle')
+// 但命中休息时段（免打扰列表里的午休/夜间）就躺下
+assert.equal(resolvePetState({ phase: 'lunch', pct: 5, thresholds: th, dnd: true }).action, 'sleepy')
+assert.equal(resolvePetState({ phase: 'closed', pct: 5, thresholds: th, dnd: true }).action, 'sleepy')
 assert.equal(resolvePetState({ phase: 'continuous', pct: 5, thresholds: th }).action, 'idle-smile')
 assert.equal(resolvePetState({ phase: 'continuous', pct: -5, thresholds: th }).action, 'idle-frown')
 
@@ -59,7 +67,9 @@ assert.equal(resolvePetState({ phase: 'continuous', pct: 0, thresholds: th, roam
 // 提醒/离线/盘后仍优先于漫游
 assert.equal(resolvePetState({ alertActive: true, phase: 'continuous', pct: 0, thresholds: th, roamActive: true }).action, 'panic-happy')
 assert.equal(resolvePetState({ offline: true, phase: 'continuous', pct: 0, thresholds: th, roamActive: true }).action, 'offline')
-assert.equal(resolvePetState({ phase: 'closed', pct: 0, thresholds: th, roamActive: true }).action, 'sleepy')
+assert.equal(resolvePetState({ phase: 'weekend', pct: 0, thresholds: th, roamActive: true }).action, 'sleepy')
+// 休息时段内也不漫游
+assert.equal(resolvePetState({ phase: 'lunch', pct: 0, thresholds: th, roamActive: true, dnd: true }).action, 'sleepy')
 
 // 免打扰（设置页 dndRanges）：命中即躺下睡，优先于情绪与漫游
 assert.equal(resolvePetState({ phase: 'continuous', pct: 5, thresholds: th, dnd: true }).action, 'sleepy')
