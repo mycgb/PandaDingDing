@@ -194,7 +194,12 @@ function start(): void {
   syncDisciplineRule()
 
   dsm = new DataSourceManager(log)
-  dsm.on('notice', (n) => broadcast(IPC.push.systemNotice, n))
+  dsm.on('notice', (n) => {
+    // 行情源主备切换很频繁（网络抖一下就切一次），允许用户在设置里关掉这类提示条；
+    // 侧栏的数据源状态、托盘 tooltip 不受影响，仍能看到当前跑在哪路源上。
+    if (n.type === 'dataSource' && !settings.dsNoticeEnabled) return
+    broadcast(IPC.push.systemNotice, n)
+  })
   klineSvc = new KlineService()
 
   alertEngine = new AlertEngine({

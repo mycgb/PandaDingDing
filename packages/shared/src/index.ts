@@ -210,6 +210,8 @@ export interface AppSettings {
   chaseHighPct: number
   /** 交易纪律：每日提醒条数上限，0 = 不限（防提醒轰炸） */
   maxAlertsPerDay: number
+  /** 行情源切换提示：切到备用源 / 主源恢复时是否弹提示条（默认开） */
+  dsNoticeEnabled: boolean
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -238,6 +240,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   indexBarPosition: null,
   chaseHighPct: 7,
   maxAlertsPerDay: 0,
+  dsNoticeEnabled: true,
 }
 
 /* ---------- IPC channel 白名单 ---------- */

@@ -49,6 +49,10 @@
         <input type="checkbox" v-model="s.soundEnabled" @change="save" />
       </label>
       <label class="row">
+        <span>行情源切换提示（切备用源 / 主源恢复）</span>
+        <input type="checkbox" v-model="s.dsNoticeEnabled" @change="save" />
+      </label>
+      <label class="row">
         <span>开机自启</span>
         <input type="checkbox" v-model="s.autoStart" @change="save" />
       </label>
