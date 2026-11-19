@@ -47,14 +47,16 @@ export function roamDecision(base: PetState, roamActive: boolean, facing?: 'left
 }
 
 /**
- * 状态优先级（文档 §7.3）：alert > offline > 时段降速(sleepy) > mood(+walk)
- * 注意：桌宠永远有一个"在播放"的动作，不存在完全静止的时段（sleepy 只是降速）。
+ * 状态优先级（文档 §7.3）：alert > offline > 免打扰(dnd) > 时段(sleepy) > mood(+walk)
+ * 注意：桌宠永远有一个"在播放"的动作，不存在完全静止的时段（sleepy 只是躺下呼吸）。
  * walk 由 RoamController 调度，只在中性 idle 且控制器放行时接管。
  */
 export function resolvePetState(input: {
   alertActive?: boolean
   alertDirection?: 'up' | 'down'
   offline?: boolean
+  /** 命中设置页的免打扰时段（dndRanges）：与提醒静默同源，桌宠直接躺下睡觉 */
+  dnd?: boolean
   phase: MarketPhase
   pct: number | null
   thresholds: MoodThresholds
@@ -67,6 +69,8 @@ export function resolvePetState(input: {
       : { action: 'panic-happy', reason: 'alert' }
   }
   if (input.offline) return { action: 'offline', reason: 'offline' }
+  // 免打扰优先于时段与情绪：用户设这个时段就是不想被打扰，桌宠也一起睡
+  if (input.dnd) return { action: 'sleepy', reason: 'dnd' }
   const o = phasePetOverride(input.phase)
   if (o) return o
   const base = baseMoodState(input.pct, input.thresholds)

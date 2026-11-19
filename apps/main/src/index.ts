@@ -207,6 +207,8 @@ function start(): void {
       }
       // 角标开关变化后立即刷新（开→显示角标，关→回基础图）
       updateTrayBadge(portfolioPct(latestSnapshots, store.listWatchlist()), Date.now() < alertHoldUntil)
+      // 免打扰时段改了要立刻反映到桌宠（否则要等下一轮轮询才躺下/起身）
+      pushPetState()
     },
     getSettingsRef: () => settings,
     openPanel: () => createPanelWindow(),
@@ -654,11 +656,14 @@ const moodThresholds = (): MoodThresholds => ({ up: settings.moodUpThreshold, do
 function pushPetState(): void {
   const wl = store.listWatchlist()
   const pct = portfolioPct(latestSnapshots, wl)
+  const now = new Date()
   const state: PetState = resolvePetState({
     alertActive: Date.now() < alertHoldUntil,
     alertDirection: lastAlertDirection ?? 'up',
     offline: dsm.currentState === 'OFFLINE',
-    phase: phaseOf(new Date()),
+    // 与提醒静默同源：免打扰时段桌宠也躺下睡觉（设置页 dndEnabled + dndRanges）
+    dnd: isDndNow(settings.dndRanges, settings.dndEnabled, now),
+    phase: phaseOf(now),
     pct,
     thresholds: moodThresholds(),
     roamActive: roamCtrl?.isRoaming ?? false,

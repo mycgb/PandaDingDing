@@ -61,4 +61,15 @@ assert.equal(resolvePetState({ alertActive: true, phase: 'continuous', pct: 0, t
 assert.equal(resolvePetState({ offline: true, phase: 'continuous', pct: 0, thresholds: th, roamActive: true }).action, 'offline')
 assert.equal(resolvePetState({ phase: 'closed', pct: 0, thresholds: th, roamActive: true }).action, 'sleepy')
 
+// 免打扰（设置页 dndRanges）：命中即躺下睡，优先于情绪与漫游
+assert.equal(resolvePetState({ phase: 'continuous', pct: 5, thresholds: th, dnd: true }).action, 'sleepy')
+assert.equal(resolvePetState({ phase: 'continuous', pct: 5, thresholds: th, dnd: true }).reason, 'dnd')
+assert.equal(resolvePetState({ phase: 'continuous', pct: -5, thresholds: th, dnd: true }).action, 'sleepy')
+assert.equal(resolvePetState({ phase: 'continuous', pct: 0, thresholds: th, dnd: true, roamActive: true }).action, 'sleepy')
+// 免打扰不压过提醒与离线
+assert.equal(resolvePetState({ alertActive: true, alertDirection: 'down', dnd: true, phase: 'continuous', pct: 0, thresholds: th }).action, 'panic-sad')
+assert.equal(resolvePetState({ offline: true, dnd: true, phase: 'continuous', pct: 0, thresholds: th }).action, 'offline')
+// 关掉免打扰后恢复正常情绪
+assert.equal(resolvePetState({ phase: 'continuous', pct: 5, thresholds: th, dnd: false }).action, 'idle-smile')
+
 console.log('pet-state: all tests passed')
