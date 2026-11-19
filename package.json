@@ -1,7 +1,7 @@
 {
   "name": "pandadingding",
   "private": true,
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "熊猫盯盯 - 桌宠股票基金监控",
   "main": "apps/main/dist/index.cjs",
   "packageManager": "pnpm@11.28.5",
