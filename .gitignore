@@ -16,3 +16,6 @@ tsconfig.tsbuildinfo
 半成品功能待办.md
 开发文档-桌宠股票基金监控应用.md
 dev.bat
+
+# AI 生图原始素材（用于重建帧池，体积大，不入库）
+generated-images/

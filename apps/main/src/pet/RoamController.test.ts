@@ -117,6 +117,43 @@ test('RoamController: 高优先级状态与用户交互立即中断漫游', () =
   assert.equal(ctrl.isRoaming, false)
 })
 
+test('RoamController: 开关关闭时不漫游，漫游中关闭立即停止', () => {
+  let now = 0
+  let pos: Point = { x: 300, y: 590 }
+  let enabled = false
+  const ctrl = new RoamController({
+    now: () => now,
+    getPosition: () => ({ ...pos }),
+    setPosition: (x, y) => { pos = { x, y } },
+    getWorkArea: () => WA,
+    isEnabled: () => enabled,
+    canRoam: () => true,
+    onFacingChange: () => {},
+    onActivity: () => {},
+    persistPosition: () => {},
+  })
+  const tick = () => (ctrl as unknown as { tick(): void }).tick()
+
+  // 开关关闭：即便空闲超时也不进入漫游
+  now = ROAM_IDLE_MS * 3
+  tick()
+  assert.equal(ctrl.isRoaming, false, '关闭开关后不应漫游')
+  const frozen = { ...pos }
+
+  // 打开开关：下一拍进入漫游
+  enabled = true
+  tick()
+  assert.equal(ctrl.isRoaming, true, '打开开关后应开始漫游')
+  now += 50; tick()
+  assert.ok(pos.x > frozen.x, '漫游中 x 应移动')
+
+  // 漫游中关闭开关：下一拍立即停下并回 idle
+  enabled = false
+  tick()
+  assert.equal(ctrl.isRoaming, false, '关闭开关应立即停止漫游')
+  assert.equal((ctrl as unknown as { phase: string }).phase, 'idle')
+})
+
 test('RoamController: 撞边界翻面计数', () => {
   let now = 0
   // 从右边界附近出发，朝左

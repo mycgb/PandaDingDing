@@ -99,7 +99,7 @@
         <input type="checkbox" v-model="s.clickThrough" @change="toggleClickThrough" />
       </label>
       <label class="row">
-        <span>空闲时桌宠散步漫游</span>
+        <span>🚶 桌宠自动漫游（关闭则固定在原地）</span>
         <input type="checkbox" v-model="s.roamEnabled" @change="save" />
       </label>
       <label class="row">
