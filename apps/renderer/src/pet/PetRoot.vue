@@ -12,8 +12,8 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import PetStage from './PetStage.vue'
 import BubbleLayer from './BubbleLayer.vue'
-import { api, onPetState, onAlert, onNotice, onQuote, onSettingsChanged } from '../api'
-import type { AlertEvent, PetState, QuoteSnapshot, SystemNotice, AppSettings } from '@shared/index'
+import { api, onPetState, onAlert, onNotice, onQuote, onSettingsChanged, onSoundPlay } from '../api'
+import type { AlertEvent, PetState, QuoteSnapshot, SystemNotice, AppSettings, SoundKind } from '@shared/index'
 
 const stage = ref<InstanceType<typeof PetStage>>()
 const state = ref<PetState>({ action: 'idle' })
@@ -70,9 +70,36 @@ onMounted(async () => {
     // 常显模式：行情更新时同步刷新当前常显气泡内容（价格实时变化）
     if (bubbleAlwaysOn.value) updateAlwaysBubble()
   })
+  onSoundPlay((kind: SoundKind) => playSound(kind))
 
   configureTicker()
 })
+
+/**
+ * 提示音：主进程判断开关后推 kind 过来，这里只负责发声。
+ * 音频文件放 resources/sounds，与皮肤一样走 pt-resource（打包）/ 静态目录（dev）。
+ * 用 Audio 池缓存实例：首次 new 会加载，之后重播只需 currentTime=0，避免每次重新解码。
+ */
+const audioPool = new Map<SoundKind, HTMLAudioElement>()
+const SOUND_FILES: Record<SoundKind, string> = {
+  up: 'alert-up.wav', down: 'alert-down.wav', time: 'alert-time.wav', update: 'update.wav',
+}
+function soundUrl(kind: SoundKind): string {
+  const name = SOUND_FILES[kind]
+  return location.protocol === 'file:' ? `pt-resource://sounds/${name}` : `/sounds/${name}`
+}
+function playSound(kind: SoundKind): void {
+  try {
+    let a = audioPool.get(kind)
+    if (!a) {
+      a = new Audio(soundUrl(kind))
+      audioPool.set(kind, a)
+    }
+    a.currentTime = 0
+    // play() 返回 Promise；自动播放被浏览器策略拦下时静默忽略，不影响提醒主流程
+    void a.play().catch(() => { /* autoplay 被拒或音频不可用：静默 */ })
+  } catch { /* 音频不可用不影响提醒 */ }
+}
 
 const latest = ref<QuoteSnapshot[]>([])
 

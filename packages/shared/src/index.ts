@@ -153,6 +153,9 @@ export interface SystemNotice {
   level?: 'info' | 'alert'
 }
 
+/** 提示音种类：涨/跌/定时时点/发现新版本。与 resources/sounds/*.wav 一一对应。 */
+export type SoundKind = 'up' | 'down' | 'time' | 'update'
+
 export interface SuggestItem {
   secId: string
   code: string
@@ -371,6 +374,7 @@ export const IPC = {
     settingsChanged: 'settings:changed',
     indexQuotes: 'index:quotes',
     updateProgress: 'update:progress',
+    soundPlay: 'sound:play',
   } as const,
 }
 

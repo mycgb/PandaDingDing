@@ -18,7 +18,7 @@ import { suggest, BUILTIN_ETF, parseClipboardCode } from './search/suggest.ts'
 import { setPetWindow } from './windows/petWindowAccess.ts'
 import { KlineService, bindFetch as bindKline } from './kline/KlineService.ts'
 import { UpdateService } from './update/UpdateService.ts'
-import { IPC, phaseOf, isTradingDay, MARKET_INDICES, calcPosition, dsSourceLabel, DEFAULT_SETTINGS, DEFAULT_REST_RANGES, type AppSettings, type QuoteSnapshot, type WatchItem, type PetState, type ClosingReport, type TimeAlert } from '../../../packages/shared/src/index.ts'
+import { IPC, phaseOf, isTradingDay, MARKET_INDICES, calcPosition, dsSourceLabel, DEFAULT_SETTINGS, DEFAULT_REST_RANGES, type AppSettings, type QuoteSnapshot, type WatchItem, type PetState, type ClosingReport, type TimeAlert, type SoundKind } from '../../../packages/shared/src/index.ts'
 import { pathToFileURL } from 'node:url'
 
 const IS_DEV = !!process.env.PETTICKER_DEV
@@ -157,6 +157,8 @@ function boot(): void {
   computePaths()
   openLogFile()
   log(`启动 v${app.getVersion()}（日志: ${logFile || '未落盘'}）`)
+  // 提示音由系统事件触发、没有用户手势；不放开自动播放策略的话 Audio.play() 会被 Chromium 拒绝
+  app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
   registerResourceScheme()
   app.whenReady().then(() => { registerResourceHandler(); start() })
     .catch((e) => { log('boot fail', e); app.quit() })
@@ -179,7 +181,9 @@ function registerResourceHandler(): void {
     const root = res()
     const target = path.normalize(path.join(root, rel))
     if (!target.startsWith(root)) return new Response('forbidden', { status: 403 })
-    const mime = target.endsWith('.json') ? 'application/json' : 'image/png'
+    const mime = target.endsWith('.json') ? 'application/json'
+      : target.endsWith('.wav') ? 'audio/wav'
+      : 'image/png'
     return net.fetch(`file:///${target.replace(/\\/g, '/')}`)
       .then((r) => {
         const h = new Headers(r.headers)
@@ -253,6 +257,7 @@ function start(): void {
     // 发现新版本：提示条 + 日志。面板未开也没关系，设置页打开时能读到状态
     notify: (info) => {
       log('发现新版本:', info.latest, '当前', info.current)
+      playSound('update')
       broadcast(IPC.push.systemNotice, {
         type: 'update',
         message: `发现新版本 v${info.latest}（当前 v${info.current}），可在「关于 → 软件更新」一键升级`,
@@ -570,6 +575,7 @@ function fireTimeAlert(a: TimeAlert): void {
   alertHoldUntil = Date.now() + 8000
   lastAlertDirection = 'up'
   lastAlertKind = 'time'
+  playSound('time')
   pushPetState()
   setTimeout(pushPetState, 8000).unref?.()
 }
@@ -1084,6 +1090,7 @@ function onAlertFired(e: import('../../../packages/shared/src/index.ts').AlertEv
   alertHoldUntil = Date.now() + 8000
   lastAlertDirection = e.direction
   lastAlertKind = e.direction === 'down' ? 'down' : 'up'
+  playSound(lastAlertKind)
   broadcast(IPC.push.alertTriggered, e)
   pushPetState()
   setTimeout(pushPetState, 8000).unref?.()
@@ -1189,6 +1196,17 @@ function broadcast(channel: string, payload: unknown): void {
     if (!w || w.isDestroyed() || w.webContents.isDestroyed()) continue
     try { w.webContents.send(channel, payload) } catch { /* 帧刚好在发送瞬间销毁：跳过本次 */ }
   }
+}
+
+/**
+ * 播放提示音。开关在设置里（默认开），在主进程集中判断；只发给桌宠窗口，
+ * 避免面板/指数条窗口同时收到导致同一声音播三遍。真正的 Audio 播放在渲染层。
+ */
+function playSound(kind: SoundKind): void {
+  if (!settings?.soundEnabled) return
+  const w = petWin
+  if (!w || w.isDestroyed() || w.webContents.isDestroyed()) return
+  try { w.webContents.send(IPC.push.soundPlay, kind) } catch { /* 窗口刚好销毁 */ }
 }
 
 export { createPanelWindow, suggest, BUILTIN_ETF, settings as _settings }
