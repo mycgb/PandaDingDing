@@ -255,7 +255,7 @@ function start(): void {
       log('发现新版本:', info.latest, '当前', info.current)
       broadcast(IPC.push.systemNotice, {
         type: 'update',
-        message: `发现新版本 v${info.latest}（当前 v${info.current}），可在「设置 → 软件更新」一键升级`,
+        message: `发现新版本 v${info.latest}（当前 v${info.current}），可在「关于 → 软件更新」一键升级`,
       })
     },
   })

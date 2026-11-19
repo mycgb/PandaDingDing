@@ -103,6 +103,9 @@ function trimNotes(body: string | null | undefined): string | null {
     .replace(/^\s*>\s?/gm, '')          // 引用块
     .replace(/^构建时间：.*$/gm, '')     // 自动生成的元信息
     .replace(/^提交：.*$/gm, '')
+    // 首行「PandaDingDing · 熊猫盯叮  0.2.3」纯冗余：卡片上已经标了版本号。
+    // 只匹配行首，正文里以「· 」开头的提交条目不受影响。
+    .replace(/^PandaDingDing.*$/gm, '')
     .trim()
   // 「下载」及之后是按产物生成的链接清单（见 .github/workflows/release.yml）
   const cut = text.search(/^下载\s*$/m)

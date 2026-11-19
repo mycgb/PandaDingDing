@@ -32,7 +32,8 @@
           <button v-for="t in tabs" :key="t.key" :class="{ active: tab === t.key }" @click="tab = t.key">
             <span class="nav-icon">{{ t.icon }}</span>
             {{ t.label }}
-            <span v-if="t.key === 'settings' && hasUpdate" class="nav-dot" title="有新版本可用" />
+            <!-- 更新入口在「关于」页底部，红点跟着入口走，否则点进去找不到 -->
+            <span v-if="t.key === 'about' && hasUpdate" class="nav-dot" title="有新版本可用" />
           </button>
         </nav>
         <footer class="src-status">
