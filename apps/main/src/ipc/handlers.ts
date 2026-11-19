@@ -25,6 +25,13 @@ export interface IpcDeps {
   setAutoStart?(enabled: boolean): void
   /** 定时提醒增删改后重排调度（下次扫描立即生效） */
   refreshTimeAlerts?(): void
+  /** 软件更新（GitHub Releases）；缺省时相关 IPC 返回空状态而不是抛错 */
+  update?: {
+    status(): import('../../../../packages/shared/src/index.ts').UpdateStatus
+    check(silent?: boolean): Promise<import('../../../../packages/shared/src/index.ts').UpdateInfo>
+    download(): Promise<import('../../../../packages/shared/src/index.ts').UpdateProgress>
+    install(): void
+  }
 }
 
 // secId = 市场号.代码。市场号含 A股0/1、港股116、美股105/106/107、场外基金150；
@@ -208,4 +215,9 @@ export function registerIpc(deps: IpcDeps): void {
     const { app } = require('electron') as typeof import('electron')
     return app.getVersion()
   })
+  /* ---------- 软件更新 ---------- */
+  on(IPC.invoke.updateCheck, (_e, silent?: unknown) => deps.update?.check(silent === true))
+  on(IPC.invoke.updateDownload, () => deps.update?.download())
+  on(IPC.invoke.updateInstall, () => { deps.update?.install() })
+  on(IPC.invoke.updateStatus, () => deps.update?.status() ?? { info: null, progress: null })
 }

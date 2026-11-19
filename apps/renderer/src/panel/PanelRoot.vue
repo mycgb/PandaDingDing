@@ -32,6 +32,7 @@
           <button v-for="t in tabs" :key="t.key" :class="{ active: tab === t.key }" @click="tab = t.key">
             <span class="nav-icon">{{ t.icon }}</span>
             {{ t.label }}
+            <span v-if="t.key === 'settings' && hasUpdate" class="nav-dot" title="有新版本可用" />
           </button>
         </nav>
         <footer class="src-status">
@@ -79,14 +80,22 @@ let statusTimer: ReturnType<typeof setInterval> | null = null
 /** 行情源/网络事件提示（原来的实现把它写进 ds.source，导致侧栏显示整句话） */
 const notice = ref('')
 let noticeTimer: ReturnType<typeof setTimeout> | null = null
+/** 有新版本时在「设置」旁边点一个小红点，避免提示条一闪而过就找不到了 */
+const hasUpdate = ref(false)
 
 onMounted(async () => {
   const s = await api.settingsGet()
   setTheme(s.theme ?? 'light')
   ds.value = await api.dataSourceStatus()
   statusTimer = setInterval(async () => { ds.value = await api.dataSourceStatus() }, 10_000)
+  // 更新状态可能在本窗口打开前就已查出（后台 15 秒检查），这里补读一次
+  try { hasUpdate.value = (await api.updateStatus()).info?.hasUpdate === true } catch { /* 忽略 */ }
   off = onNotice((n) => {
-    if (n.type !== 'dataSource' && n.type !== 'network') return
+    if (n.type === 'update') {
+      hasUpdate.value = true
+    } else if (n.type !== 'dataSource' && n.type !== 'network') {
+      return
+    }
     notice.value = n.message
     if (noticeTimer) clearTimeout(noticeTimer)
     noticeTimer = setTimeout(() => { notice.value = '' }, 6000)
@@ -244,6 +253,11 @@ async function toggleMaximize(): Promise<void> {
   box-shadow: 0 1px 3px rgba(0,0,0,0.06);
 }
 .nav-icon { font-size: 14px; width: 18px; text-align: center; }
+/* 有新版本的小红点 */
+.nav-dot {
+  width: 7px; height: 7px; border-radius: 50%; margin-left: auto;
+  background: #ff453a; box-shadow: 0 0 0 2px var(--sidebar-bg);
+}
 
 .src-status {
   margin-top: auto; padding: 8px; font-size: 11px; color: var(--text-secondary); line-height: 1.6;

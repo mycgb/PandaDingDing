@@ -1,5 +1,5 @@
 /** 渲染层访问主进程 API 的类型安全封装 */
-import type { IpcInvokeMap, AlertEvent, PetState, QuoteSnapshot, SystemNotice, AppSettings } from '@shared/index'
+import type { IpcInvokeMap, AlertEvent, PetState, QuoteSnapshot, SystemNotice, AppSettings, UpdateProgress } from '@shared/index'
 import { IPC } from '@shared/index'
 
 declare global {
@@ -33,4 +33,7 @@ export function onPetState(cb: (s: PetState) => void): () => void {
 }
 export function onSettingsChanged(cb: (s: AppSettings) => void): () => void {
   return api.on(IPC.push.settingsChanged, (s) => cb(s as AppSettings))
+}
+export function onUpdateProgress(cb: (p: UpdateProgress) => void): () => void {
+  return api.on(IPC.push.updateProgress, (p) => cb(p as UpdateProgress))
 }

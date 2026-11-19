@@ -1,6 +1,42 @@
 <template>
   <section class="settings" v-if="s">
     <div class="card">
+      <h2>软件更新</h2>
+      <label class="row">
+        <span>当前版本</span>
+        <span class="ver">v{{ currentVersion || '—' }}</span>
+      </label>
+      <label class="row">
+        <span>启动后自动检查新版本</span>
+        <input type="checkbox" v-model="s.updateCheckEnabled" @change="save" />
+      </label>
+      <div class="row">
+        <span>检查结果</span>
+        <span class="ver" :class="{ 'has-new': info?.hasUpdate, 'has-err': !!info?.error }">{{ updateStatusText }}</span>
+      </div>
+      <div v-if="downloading" class="row update-bar-row">
+        <span>下载进度</span>
+        <div class="update-bar">
+          <i :style="{ width: `${percent}%` }" />
+          <em>{{ percent }}%</em>
+        </div>
+        <span class="dim size">{{ mbText }}</span>
+      </div>
+      <div class="row update-actions">
+        <button class="mini" :disabled="checking" @click="checkUpdate">{{ checking ? '检查中…' : '检查更新' }}</button>
+        <button v-if="info?.hasUpdate && info.asset" class="mini primary" :disabled="downloading"
+                @click="downloadOrInstall">
+          {{ downloading ? '下载中…' : (ready ? '立即安装并重启' : (info.installable ? '下载并安装' : '下载安装包')) }}
+        </button>
+        <button v-if="info?.hasUpdate" class="mini" @click="openRelease">打开发布页</button>
+      </div>
+      <div v-if="info?.notes && info.hasUpdate" class="update-notes">{{ info.notes }}</div>
+      <div class="hint">
+        检查走 GitHub 官方 Releases（需要能访问 github.com / api.github.com）。Windows 支持下载后静默安装并自动重启；
+        macOS / Linux 会下载安装包或打开发布页，按系统方式安装。
+      </div>
+    </div>
+    <div class="card">
       <h2>外观</h2>
       <label class="row">
         <span>界面主题</span>
@@ -206,16 +242,45 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
-import { api } from '../../api'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { api, onUpdateProgress } from '../../api'
 import { setTheme as applyTheme } from '../theme'
 import { DEFAULT_REST_RANGES } from '@shared/index'
-import type { AlertEvent, AppSettings, SkinInfo, ClosingReport } from '@shared/index'
+import type { AlertEvent, AppSettings, SkinInfo, ClosingReport, UpdateInfo, UpdateProgress } from '@shared/index'
 
 const s = ref<AppSettings | null>(null)
 const skins = ref<SkinInfo[]>([])
 const history = ref<AlertEvent[]>([])
 const reports = ref<ClosingReport[]>([])
+
+/* ---------- 软件更新 ---------- */
+const currentVersion = ref('')
+const info = ref<UpdateInfo | null>(null)
+const progress = ref<UpdateProgress | null>(null)
+const checking = ref(false)
+let offUpdate: (() => void) | null = null
+
+const downloading = computed(() => progress.value?.phase === 'downloading')
+const ready = computed(() => progress.value?.phase === 'ready')
+const percent = computed(() => {
+  const p = progress.value
+  if (!p) return 0
+  if (p.phase === 'ready' || p.phase === 'installing') return 100
+  return Math.max(0, Math.min(100, p.percent))
+})
+const mbText = computed(() => {
+  const p = progress.value
+  if (!p) return ''
+  const f = (n: number) => (n / 1048576).toFixed(1)
+  return `${f(p.receivedBytes)} / ${f(p.totalBytes)} MB`
+})
+const updateStatusText = computed(() => {
+  if (checking.value) return '检查中…'
+  if (!info.value) return '尚未检查'
+  if (info.value.error) return `检查失败：${info.value.error}`
+  if (info.value.hasUpdate) return `发现新版本 v${info.value.latest}${info.value.asset ? '' : '（当前平台暂无安装包）'}`
+  return '已是最新版本'
+})
 
 onMounted(async () => {
   s.value = await api.settingsGet()
@@ -223,9 +288,19 @@ onMounted(async () => {
   try { skins.value = await api.skinsList() } catch { skins.value = [] }
   history.value = await api.alertHistory()
   reports.value = await api.closingReports()
+  try {
+    currentVersion.value = await api.appVersion()
+    const st = await api.updateStatus()
+    info.value = st.info
+    progress.value = st.progress
+  } catch { /* 老版本没有更新接口时忽略 */ }
+  offUpdate = onUpdateProgress((p) => { progress.value = p })
   window.addEventListener('focus', refreshSettings)
 })
-onBeforeUnmount(() => window.removeEventListener('focus', refreshSettings))
+onBeforeUnmount(() => {
+  window.removeEventListener('focus', refreshSettings)
+  offUpdate?.()
+})
 
 async function refreshSettings(): Promise<void> {
   s.value = await api.settingsGet()
@@ -318,6 +393,36 @@ async function loadHistory(): Promise<void> {
 async function loadReports(): Promise<void> {
   reports.value = await api.closingReports()
 }
+
+/* ---------- 软件更新动作 ---------- */
+
+async function checkUpdate(): Promise<void> {
+  checking.value = true
+  try {
+    info.value = await api.updateCheck(false)
+  } catch (e) {
+    alert('检查更新失败：' + (e as Error).message)
+  } finally {
+    checking.value = false
+  }
+}
+
+/** 已下载 → 直接安装；否则先下载（进度由 update:progress 推送） */
+async function downloadOrInstall(): Promise<void> {
+  try {
+    if (ready.value) { await api.updateInstall(); return }
+    progress.value = { phase: 'downloading', percent: 0, receivedBytes: 0, totalBytes: info.value?.asset?.size ?? 0 }
+    progress.value = await api.updateDownload()
+  } catch (e) {
+    alert('下载更新失败：' + (e as Error).message)
+    progress.value = { phase: 'error', percent: 0, receivedBytes: 0, totalBytes: 0, message: (e as Error).message }
+  }
+}
+
+async function openRelease(): Promise<void> {
+  const url = info.value?.htmlUrl || 'https://github.com/mycgb/PandaDingDing/releases'
+  try { await api.openExternal(url) } catch (e) { alert('打开链接失败：' + (e as Error).message) }
+}
 </script>
 
 <style scoped>
@@ -386,4 +491,33 @@ h2 {
 .report-head { display: flex; justify-content: space-between; margin-bottom: 5px; color: var(--text); }
 .report-body { color: var(--text-secondary); margin-bottom: 4px; }
 .report-line { color: var(--text-tertiary); margin-top: 3px; }
+
+/* ---------- 软件更新 ---------- */
+.ver { font: 12px 'SF Mono', Consolas, monospace; color: var(--text-secondary); }
+.ver.has-new { color: var(--up); font-weight: 700; }
+.ver.has-err { color: #ff9f0a; }
+.update-actions { gap: 8px; flex-wrap: wrap; margin-left: 220px; }
+.mini.primary {
+  background: var(--accent); color: #fff; border-color: var(--accent);
+}
+.mini.primary:hover:not(:disabled) { background: var(--accent-hover); }
+.mini:disabled { opacity: .55; cursor: default; }
+.update-bar-row { align-items: center; }
+.update-bar {
+  position: relative; width: 260px; height: 12px; border-radius: 6px;
+  background: var(--bg); border: 1px solid var(--border); overflow: hidden;
+}
+.update-bar i { display: block; height: 100%; background: var(--accent); transition: width .2s ease; }
+.update-bar em {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font: 600 9px/1 'SF Mono', Consolas, monospace; color: var(--text); font-style: normal;
+}
+.update-bar-row .size { font-size: 11px; }
+.update-notes {
+  margin: 8px 0 0 220px; max-height: 160px; overflow: auto;
+  padding: 8px 10px; border-radius: 8px; background: var(--bg);
+  border: 1px solid var(--border-soft);
+  font: 11px/1.6 'SF Mono', Consolas, monospace; color: var(--text-secondary);
+  white-space: pre-wrap;
+}
 </style>

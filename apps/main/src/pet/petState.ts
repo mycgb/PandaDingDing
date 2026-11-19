@@ -56,6 +56,8 @@ export function roamDecision(base: PetState, roamActive: boolean, facing?: 'left
 export function resolvePetState(input: {
   alertActive?: boolean
   alertDirection?: 'up' | 'down'
+  /** 提醒类型：定时时点提醒用 'time'（慢摇催办），规则提醒按涨跌 */
+  alertKind?: 'up' | 'down' | 'time'
   offline?: boolean
   /** 命中设置页的免打扰 / 休息时段（dndRanges）：与提醒静默同源，桌宠直接躺下睡觉 */
   dnd?: boolean
@@ -66,9 +68,11 @@ export function resolvePetState(input: {
   roamFacing?: 'left' | 'right'
 }): PetState {
   if (input.alertActive) {
-    return input.alertDirection === 'down'
-      ? { action: 'panic-sad', reason: 'alert' }
-      : { action: 'panic-happy', reason: 'alert' }
+    const kind = input.alertKind ?? (input.alertDirection === 'down' ? 'down' : 'up')
+    if (kind === 'time') return { action: 'alert-time', reason: 'alert', alertKind: 'time' }
+    return kind === 'down'
+      ? { action: 'panic-sad', reason: 'alert', alertKind: 'down' }
+      : { action: 'panic-happy', reason: 'alert', alertKind: 'up' }
   }
   if (input.offline) return { action: 'offline', reason: 'offline' }
   // 免打扰优先于休市日与情绪：用户设这个时段就是不想被打扰，桌宠也一起睡

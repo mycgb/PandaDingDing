@@ -127,14 +127,24 @@ export interface AlertEvent {
 }
 
 export interface PetState {
-  action: 'idle' | 'idle-smile' | 'idle-frown' | 'happy' | 'sad' | 'panic-happy' | 'panic-sad' | 'sleepy' | 'sleep' | 'walk' | 'offline'
+  action: 'idle' | 'idle-smile' | 'idle-frown' | 'happy' | 'sad' | 'panic-happy' | 'panic-sad' | 'alert-time' | 'sleepy' | 'sleep' | 'walk' | 'offline'
   reason?: string
   /** 漫游朝向：渲染层据此水平翻转 walk 帧；'left' 时朝左 */
   facing?: 'left' | 'right'
+  /**
+   * 提醒类型：'up' 涨（欢呼抖动）/ 'down' 跌（摇头抖动）/ 'time' 定时时点（慢摇催办）。
+   * 缺省时按 alertDirection 推断，渲染层据此选动作。
+   */
+  alertKind?: 'up' | 'down' | 'time'
+  /**
+   * 收盘后给桌宠显示「今日收益」小胶囊（元）；null/undefined 表示不显示。
+   * 只在 15:00 之后推送，且必须已填持仓股数（否则没有意义）。
+   */
+  dayPnl?: number | null
 }
 
 export interface SystemNotice {
-  type: 'dataSource' | 'network' | 'phase' | 'info' | 'reminder'
+  type: 'dataSource' | 'network' | 'phase' | 'info' | 'reminder' | 'update'
   message: string
   /**
    * 'alert' = 按提醒处理：桌宠气泡在免打扰/睡觉期间也显示，并伴随动作（定时时点提醒用）。
@@ -182,6 +192,57 @@ export interface ClosingReport {
   indexPct?: number | null
 }
 
+/* ---------- 软件更新（GitHub Releases） ---------- */
+
+/** 从 Release 里挑出来的安装包 */
+export interface UpdateAsset {
+  name: string
+  size: number
+  url: string
+}
+
+/** 一次检查的结果（无论成功失败都会返回，失败时 error 有值） */
+export interface UpdateInfo {
+  /** 当前运行版本，如 0.2.2 */
+  current: string
+  /** 远端最新版本（去掉 v 前缀）；检查失败为 null */
+  latest: string | null
+  /** 是否有更新 */
+  hasUpdate: boolean
+  publishedAt: string | null
+  /** Release 页面地址（浏览器打开用） */
+  htmlUrl: string | null
+  /** Release 说明正文（markdown，取前若干行展示） */
+  notes: string | null
+  /** 当前平台/架构匹配到的安装包；无匹配为 null */
+  asset: UpdateAsset | null
+  /** 是否支持「下载后静默安装」（目前仅 Windows NSIS） */
+  installable: boolean
+  /** 检查失败原因（网络/限流等），成功为 null */
+  error: string | null
+  /** 检查时间戳（ms） */
+  checkedAt: number
+}
+
+export type UpdatePhase = 'idle' | 'downloading' | 'ready' | 'installing' | 'error'
+
+/** 下载进度（push 到渲染层） */
+export interface UpdateProgress {
+  phase: UpdatePhase
+  /** 0–100，长度未知时为 0 */
+  percent: number
+  receivedBytes: number
+  totalBytes: number
+  /** 出错或提示文案 */
+  message?: string
+}
+
+/** 更新状态快照：设置页打开时回读，避免错过 push */
+export interface UpdateStatus {
+  info: UpdateInfo | null
+  progress: UpdateProgress | null
+}
+
 export interface AppSettings {
   pollIntervalMs: number          // 盘中轮询间隔，默认 3000
   moodUpThreshold: number          // 组合情绪 happy 阈值 %，默认 0.5
@@ -212,6 +273,8 @@ export interface AppSettings {
   maxAlertsPerDay: number
   /** 行情源切换提示：切到备用源 / 主源恢复时是否弹提示条（默认开） */
   dsNoticeEnabled: boolean
+  /** 启动后自动检查新版本（发现新版本时提示，默认开） */
+  updateCheckEnabled: boolean
   /** 默认休息时段是否已并入免打扰列表（一次性迁移标记，避免用户删光后又被塞回来） */
   restRangesSeeded?: boolean
 }
@@ -255,6 +318,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   chaseHighPct: 7,
   maxAlertsPerDay: 0,
   dsNoticeEnabled: true,
+  updateCheckEnabled: true,
 }
 
 /* ---------- IPC channel 白名单 ---------- */
@@ -294,6 +358,10 @@ export const IPC = {
     openExternal: 'shell/openExternal',
     indexLatest: 'index/latest',
     appVersion: 'app/version',
+    updateCheck: 'update/check',
+    updateDownload: 'update/download',
+    updateInstall: 'update/install',
+    updateStatus: 'update/status',
   } as const,
   push: {
     quoteSnapshot: 'quote:snapshot',
@@ -302,6 +370,7 @@ export const IPC = {
     petState: 'pet:state',
     settingsChanged: 'settings:changed',
     indexQuotes: 'index:quotes',
+    updateProgress: 'update:progress',
   } as const,
 }
 
@@ -340,6 +409,14 @@ export type IpcInvokeMap = {
   [IPC.invoke.indexLatest]: () => QuoteSnapshot[]
   /** 应用版本号（取自 package.json，开发态为根工程版本） */
   [IPC.invoke.appVersion]: () => string
+  /** 检查 GitHub Releases 最新版本（silent=true 时不弹任何提示，仅供后台轮询） */
+  [IPC.invoke.updateCheck]: (silent?: boolean) => UpdateInfo
+  /** 下载匹配当前平台的安装包（进度走 update:progress 推送） */
+  [IPC.invoke.updateDownload]: () => UpdateProgress
+  /** 运行已下载的安装包（Windows 静默安装并退出应用） */
+  [IPC.invoke.updateInstall]: () => void
+  /** 读取当前更新状态（设置页首次渲染用） */
+  [IPC.invoke.updateStatus]: () => UpdateStatus
 }
 
 /** 可用皮肤：目录名 + manifest 中显示名 */

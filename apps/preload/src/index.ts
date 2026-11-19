@@ -44,6 +44,10 @@ const api = {
   clipboardCheck: invoke('clipboardCheck'),
   openExternal: invoke('openExternal'),
   appVersion: invoke('appVersion'),
+  updateCheck: invoke('updateCheck'),
+  updateDownload: invoke('updateDownload'),
+  updateInstall: invoke('updateInstall'),
+  updateStatus: invoke('updateStatus'),
   // push 订阅
   on: (channel: string, cb: (...args: unknown[]) => void) => {
     const valid = Object.values(IPC.push as Record<string, string>)

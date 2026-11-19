@@ -17,6 +17,7 @@ import { registerIpc } from './ipc/handlers.ts'
 import { suggest, BUILTIN_ETF, parseClipboardCode } from './search/suggest.ts'
 import { setPetWindow } from './windows/petWindowAccess.ts'
 import { KlineService, bindFetch as bindKline } from './kline/KlineService.ts'
+import { UpdateService } from './update/UpdateService.ts'
 import { IPC, phaseOf, isTradingDay, MARKET_INDICES, calcPosition, dsSourceLabel, DEFAULT_SETTINGS, DEFAULT_REST_RANGES, type AppSettings, type QuoteSnapshot, type WatchItem, type PetState, type ClosingReport, type TimeAlert } from '../../../packages/shared/src/index.ts'
 import { pathToFileURL } from 'node:url'
 
@@ -66,6 +67,11 @@ let latestSnapshots: QuoteSnapshot[] = []
 let latestIndexQuotes: QuoteSnapshot[] = []
 let alertHoldUntil = 0
 let lastAlertDirection: 'up' | 'down' | null = null
+/** 本次提醒的类型：规则涨/跌 or 定时时点；决定桌宠用欢呼、摇头还是慢摇 */
+let lastAlertKind: 'up' | 'down' | 'time' | null = null
+/** 更新检查服务（GitHub Releases） */
+let updateSvc: UpdateService
+let updateTimer: NodeJS.Timeout | null = null
 /** 桌宠窗口本次交互是否发生过位移（用于区分单击/拖拽） */
 let petMoved = false
 /** 老板键隐身态：只影响当前运行期，不写 petVisible，避免下次启动"桌宠不见了" */
@@ -216,6 +222,19 @@ function start(): void {
   scheduler = new QuoteScheduler(async () => { await pollOnce() }, log)
   scheduler.on('phaseChange', onPhaseChange)
 
+  updateSvc = new UpdateService({
+    log,
+    push: (ch, payload) => broadcast(ch, payload),
+    // 发现新版本：提示条 + 日志。面板未开也没关系，设置页打开时能读到状态
+    notify: (info) => {
+      log('发现新版本:', info.latest, '当前', info.current)
+      broadcast(IPC.push.systemNotice, {
+        type: 'update',
+        message: `发现新版本 v${info.latest}（当前 v${info.current}），可在「设置 → 软件更新」一键升级`,
+      })
+    },
+  })
+
   registerIpc({
     store, dsm, scheduler,
     getSnapshots: () => latestSnapshots,
@@ -226,6 +245,7 @@ function start(): void {
       const prevBossAccel = settings.bossKeyAccelerator
       const prevIndexBar = settings.indexBarEnabled
       const prevChase = settings.chaseHighPct
+      const prevUpdateCheck = settings.updateCheckEnabled
       settings = s
       // 皮肤更换：基础托盘图可能变化，强制重建图标
       if (s.skin !== prevSkin) {
@@ -246,6 +266,8 @@ function start(): void {
       if (s.indexBarEnabled !== prevIndexBar) refreshTray()
       // 防追高阈值变了：同步内置规则（改数字即生效，不必重启）
       if (s.chaseHighPct !== prevChase) syncDisciplineRule()
+      // 自动检查更新开关：开→立刻排一次，关→清掉定时器
+      if (s.updateCheckEnabled !== prevUpdateCheck) startUpdateCheck()
       // 免打扰时段改了要立刻反映到桌宠（否则要等下一轮轮询才躺下/起身）
       pushPetState()
     },
@@ -259,6 +281,12 @@ function start(): void {
     refreshTray: () => refreshTray(),
     setAutoStart: (enabled) => applyAutoStart(enabled),
     refreshTimeAlerts: () => checkTimeAlerts(),
+    update: {
+      status: () => updateSvc.status(),
+      check: (silent) => updateSvc.check(silent),
+      download: () => updateSvc.download(),
+      install: () => updateSvc.install(),
+    },
   })
   // 启动时同步一次自启设置，防止系统侧被外部改动后与设置页不一致
   try { applyAutoStart(settings.autoStart) } catch (e) { log('同步开机自启失败:', e) }
@@ -271,11 +299,34 @@ function start(): void {
   startTimeAlerts()
   scheduler.start(settings.pollIntervalMs)
   startClipboardWatch()
+  startUpdateCheck()
 
   app.on('online', () => { dsm.setOnline(true); scheduler.start(settings.pollIntervalMs) })
   app.on('offline', () => { dsm.setOnline(false); broadcast(IPC.push.systemNotice, { type: 'network', message: '网络已断开' }) })
   app.on('window-all-closed', () => { /* 托盘常驻 */ })
-  app.on('before-quit', () => { try { globalShortcut.unregisterAll() } catch { /* 已退出 */ } stopTimeAlerts(); scheduler.stop(); dsm.dispose(); stopClipboardWatch(); roamCtrl?.stop(); store.close() })
+  app.on('before-quit', () => { try { globalShortcut.unregisterAll() } catch { /* 已退出 */ } stopTimeAlerts(); stopUpdateCheck(); scheduler.stop(); dsm.dispose(); stopClipboardWatch(); roamCtrl?.stop(); store.close() })
+}
+
+/* ---------- 软件更新检查 ---------- */
+
+/**
+ * 自动检查更新：启动 15 秒后查一次（不跟启动抢网络），之后每 6 小时一次。
+ * 严格按用户设置 updateCheckEnabled 走；GitHub API 未登录每小时 60 次，
+ * 这个频率离限流很远。检查失败只记日志，不打扰用户。
+ */
+function startUpdateCheck(): void {
+  stopUpdateCheck()
+  if (!settings.updateCheckEnabled) {
+    log('自动检查更新已关闭')
+    return
+  }
+  setTimeout(() => { void updateSvc.check(true) }, 15_000).unref?.()
+  updateTimer = setInterval(() => { void updateSvc.check(true) }, 6 * 3600_000)
+  updateTimer.unref?.()
+}
+
+function stopUpdateCheck(): void {
+  if (updateTimer) { clearInterval(updateTimer); updateTimer = null }
 }
 
 /* ---------- 剪贴板侦听（P2） ---------- */
@@ -493,6 +544,7 @@ function fireTimeAlert(a: TimeAlert): void {
   // 复用提醒的 8 秒保持窗口：桌宠跳一下，气泡停留足够看完
   alertHoldUntil = Date.now() + 8000
   lastAlertDirection = 'up'
+  lastAlertKind = 'time'
   pushPetState()
   setTimeout(pushPetState, 8000).unref?.()
 }
@@ -972,6 +1024,7 @@ async function pollOnce(): Promise<void> {
 function onAlertFired(e: import('../../../packages/shared/src/index.ts').AlertEvent): void {
   alertHoldUntil = Date.now() + 8000
   lastAlertDirection = e.direction
+  lastAlertKind = e.direction === 'down' ? 'down' : 'up'
   broadcast(IPC.push.alertTriggered, e)
   pushPetState()
   setTimeout(pushPetState, 8000).unref?.()
@@ -1039,21 +1092,34 @@ function pushPetState(): void {
   const wl = store.listWatchlist()
   const pct = portfolioPct(latestSnapshots, wl)
   const now = new Date()
+  const phase = phaseOf(now)
   const state: PetState = resolvePetState({
     alertActive: Date.now() < alertHoldUntil,
     alertDirection: lastAlertDirection ?? 'up',
+    alertKind: lastAlertKind ?? undefined,
     offline: dsm.currentState === 'OFFLINE',
     // 免打扰列表 = 桌宠的休息时段表：默认含午休 11:30-13:00 与夜间 15:00-09:25，用户可增删
     // （删光后桌宠在交易日就一直按情绪活动，休市日仍然睡）
     dnd: isDndNow(settings.dndRanges, settings.dndEnabled, now),
-    phase: phaseOf(now),
+    phase,
     pct,
     thresholds: moodThresholds(),
     roamActive: roamCtrl?.isRoaming ?? false,
     roamFacing: roamCtrl?.roamFacing ?? 'right',
   })
+  // 收盘后（15:00 起）给桌宠挂个「今日收益」小胶囊。
+  // 注意 phaseOf 在开盘前也算 closed，所以额外卡 15:00，避免早上 8 点显示「今日 ±0」。
+  // 四舍五入到分：浮点累加会算出 300.0000000000003 这种数
+  const pnl = isAfterClose(now) ? portfolioDayPnl() : null
+  state.dayPnl = pnl === null ? null : Math.round(pnl * 100) / 100
   broadcast(IPC.push.petState, state)
   updateTrayBadge(pct, Date.now() < alertHoldUntil)
+}
+
+/** 工作日 15:00 之后（含周末/节假日，此时显示的是最近一个交易日的收盘状态） */
+function isAfterClose(now: Date): boolean {
+  if (now.getDay() === 0 || now.getDay() === 6) return false
+  return now.getHours() * 60 + now.getMinutes() >= 15 * 60
 }
 
 function broadcast(channel: string, payload: unknown): void {

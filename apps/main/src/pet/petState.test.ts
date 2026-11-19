@@ -40,6 +40,12 @@ assert.equal(restDayOverride('continuous'), null)
 const th = { up: 0.5, down: -0.5 }
 assert.equal(resolvePetState({ alertActive: true, alertDirection: 'up', phase: 'continuous', pct: 0, thresholds: th }).action, 'panic-happy')
 assert.equal(resolvePetState({ alertActive: true, alertDirection: 'down', phase: 'continuous', pct: 0, thresholds: th }).action, 'panic-sad')
+// 提醒类型决定动作：定时时点提醒用慢摇（alert-time），规则涨跌用欢呼/摇头
+assert.equal(resolvePetState({ alertActive: true, alertKind: 'time', phase: 'continuous', pct: 0, thresholds: th }).action, 'alert-time')
+assert.equal(resolvePetState({ alertActive: true, alertKind: 'time', phase: 'continuous', pct: 0, thresholds: th }).alertKind, 'time')
+assert.equal(resolvePetState({ alertActive: true, alertKind: 'down', alertDirection: 'up', phase: 'continuous', pct: 0, thresholds: th }).action, 'panic-sad')
+assert.equal(resolvePetState({ alertActive: true, alertKind: 'up', alertDirection: 'down', phase: 'continuous', pct: 0, thresholds: th }).action, 'panic-happy')
+assert.equal(resolvePetState({ alertActive: true, alertKind: 'time', alertDirection: 'down', phase: 'continuous', pct: 0, thresholds: th }).action, 'alert-time')
 assert.equal(resolvePetState({ offline: true, phase: 'continuous', pct: 5, thresholds: th }).action, 'offline')
 // 休市日：不经免打扰也睡
 assert.equal(resolvePetState({ phase: 'weekend', pct: -5, thresholds: th }).action, 'sleepy')

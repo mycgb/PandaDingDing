@@ -1,6 +1,8 @@
 <template>
-  <div class="pet-root">
+  <div class="pet-root" :class="{ 'has-pnl': !!pnlChip }">
     <PetStage ref="stage" :state="state" :skin="skin" @open-panel="onOpenPanel" />
+    <!-- 收盘后：头顶挂一个「今日收益」小胶囊（红涨绿跌，睡觉时也保留） -->
+    <div v-if="pnlChip" class="pnl-chip" :class="pnlChip.tone">{{ pnlChip.text }}</div>
     <BubbleLayer :class="{ 'bubble-hidden': sleeping }" :bubbles="bubbles" :bubble-color="bubbleColor"
                  :font-size="bubbleFontSize" @dismiss="dismiss" />
   </div>
@@ -73,6 +75,20 @@ onMounted(async () => {
 })
 
 const latest = ref<QuoteSnapshot[]>([])
+
+/** 收盘收益胶囊：主进程只在 15:00 后带 dayPnl，没填持仓时为 null */
+const pnlChip = computed<{ text: string; tone: 'up' | 'down' | 'flat' } | null>(() => {
+  // 提醒进行中让位给气泡：三个气泡 + 胶囊会把小熊头顶挤满
+  if (state.value.reason === 'alert') return null
+  const v = state.value.dayPnl
+  if (typeof v !== 'number' || !Number.isFinite(v)) return null
+  const sign = v > 0 ? '+' : v < 0 ? '-' : ''
+  return {
+    text: `今日 ${sign}${Math.abs(v).toFixed(2)} 元`,
+    // 红涨绿跌（A 股习惯），与气泡/托盘角标保持一致
+    tone: v > 0 ? 'up' : v < 0 ? 'down' : 'flat',
+  }
+})
 
 /** 根据常显开关配置轮播定时器 */
 function configureTicker(): void {
@@ -169,4 +185,28 @@ watch(sleeping, (asleep) => {
   opacity: 0;
   pointer-events: none;
 }
+/* 收益胶囊占用了顶部空间：气泡整体下移，避免和胶囊叠在一起 */
+.pet-root.has-pnl :deep(.bubble-layer) {
+  top: 28px;
+}
+
+/* 今日收益胶囊（收盘后常驻，透明窗口里靠半透明底保证可读） */
+.pnl-chip {
+  position: absolute;
+  top: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  max-width: 156px;
+  padding: 2px 8px;
+  border-radius: 9px;
+  background: rgba(20, 24, 30, 0.84);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font: 600 10px/1.35 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  white-space: nowrap;
+  pointer-events: none;
+  color: #ff7b7b;
+}
+.pnl-chip.down { color: #6fd96f; }
+.pnl-chip.flat { color: #d0d0d6; }
 </style>

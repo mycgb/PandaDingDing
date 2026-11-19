@@ -39,6 +39,16 @@ interface ActionCfg {
     amountY?: number    // 纵向放大比例（0.035 = 峰值 +3.5%），默认 0.035
     amountX?: number    // 纵向放大时横向压缩比例，保持体积感，默认 0.012
   }
+  /**
+   * 程序化抖动：提醒触发时让桌宠"抓狂 / 摇头"。
+   * 不想为每个情绪再画一套帧（AI 出图成本高且容易走形），
+   * 用旋转 + 水平位移的正弦抖动叠加在现有帧上，同样是 30fps 连续平滑。
+   */
+  shake?: {
+    periodMs?: number   // 抖一个来回的周期，默认 180（越小越急）
+    angle?: number      // 最大倾角（度），负数表示反向
+    x?: number          // 水平位移幅度（px）
+  }
 }
 interface DisplayCfg { width?: number; height?: number; bottom?: number }
 interface SkinManifest {
@@ -69,12 +79,15 @@ let displayCfg: DisplayCfg = {}
 let baseScaleX = 1
 let baseScaleY = 1
 let facingSign = 1
-/** 呼吸定时器与当前参数 */
-let breathTimer: ReturnType<typeof setInterval> | null = null
-let breathStart = 0
+/** 程序化变换（呼吸缩放 + 抖动）的定时器与参数 */
+let transformTimer: ReturnType<typeof setInterval> | null = null
+let transformStart = 0
 let breathPeriodMs = 4000
-let breathAmountX = 0.012
-let breathAmountY = 0.035
+let breathAmountX = 0
+let breathAmountY = 0
+let shakePeriodMs = 180
+let shakeAngle = 0
+let shakeX = 0
 
 /** 诊断对象：便于冒烟/调试时从 DevTools 读取（累加合并，避免后一次 diag 覆盖掉呼吸等标记） */
 function diag(extra: Record<string, unknown>): void {
@@ -150,6 +163,8 @@ function resolveAction(action: string): string {
   if (manifest && manifest.actions[action]) return action
   if (action === 'panic-happy') return resolveAction('happy')
   if (action === 'panic-sad') return resolveAction('sad')
+  // 老皮肤没有 alert-time：退化成摇头（sad 帧）也不会没反应
+  if (action === 'alert-time') return resolveAction('sad')
   if (action === 'offline') return resolveAction('sleep')
   if (action === 'sleepy') return resolveAction('idle')
   return 'idle'
@@ -176,22 +191,33 @@ function playAction(action: string): void {
   const stepMs = Math.max(16, Math.round(1000 / fps))
 
   stopFrameTimer()
-  stopBreathTimer()
+  stopTransformTimer()
 
-  // 程序化呼吸：单帧 + 连续缩放（比多帧切换平滑得多，且不受 AI 出图质量影响）
-  if (cfg.breath) {
-    breathPeriodMs = cfg.breath.periodMs ?? 4000
-    breathAmountY = cfg.breath.amountY ?? 0.035
-    breathAmountX = cfg.breath.amountX ?? 0.012
-    breathStart = performance.now()
-    // 30fps 更新缩放即可（Pixi 仍在 rAF 上合成，肉眼看是连续的）
-    breathTimer = setInterval(() => {
-      applyScale(performance.now() - breathStart)
+  // 呼吸参数：只有声明了 breath 才缩放，否则必须归零，
+  // 否则上一个动作的呼吸幅度会被带到提醒抖动里（看起来像中邪）
+  breathPeriodMs = cfg.breath?.periodMs ?? 4000
+  breathAmountY = cfg.breath?.amountY ?? 0
+  breathAmountX = cfg.breath?.amountX ?? 0
+  // 抖动参数：提醒动作专用
+  shakePeriodMs = Math.max(60, cfg.shake?.periodMs ?? 180)
+  shakeAngle = cfg.shake?.angle ?? 0
+  shakeX = cfg.shake?.x ?? 0
+
+  // 呼吸 / 抖动都用 30fps 变换驱动（Pixi 仍在 rAF 上合成，肉眼看是连续的）
+  if (cfg.breath || cfg.shake) {
+    transformStart = performance.now()
+    transformTimer = setInterval(() => {
+      applyTransform(performance.now() - transformStart)
     }, 33)
-    applyScale(0)
-    diag({ playing: key, breathing: true, periodMs: breathPeriodMs, amountY: breathAmountY })
-    return
+    applyTransform(0)
+    diag({
+      playing: key, transform: true, breathing: !!cfg.breath,
+      periodMs: breathPeriodMs, amountY: breathAmountY,
+      shaking: !!cfg.shake, shakePeriodMs, shakeAngle, shakeX,
+    })
   }
+
+  if (cfg.breath) return
 
   // 用 setInterval 驱动而非 Pixi ticker：
   // ticker 挂在 requestAnimationFrame 上，窗口被遮挡/系统节流时会掉到 1Hz，
@@ -219,22 +245,36 @@ function stopFrameTimer(): void {
   if (frameTimer !== null) { clearInterval(frameTimer); frameTimer = null }
 }
 
-function stopBreathTimer(): void {
-  if (breathTimer !== null) { clearInterval(breathTimer); breathTimer = null }
+function stopTransformTimer(): void {
+  if (transformTimer !== null) { clearInterval(transformTimer); transformTimer = null }
 }
 
 /**
- * 应用缩放：基准 × 呼吸系数 × 朝向符号。
- * 所有改缩放的地方都必须走这里，否则呼吸与朝向会互相覆盖。
+ * 应用变换：缩放（基准 × 呼吸 × 朝向）与抖动（旋转 + 水平位移）。
+ * 所有改缩放/旋转/位置的地方都必须走这里，否则呼吸、朝向、抖动会互相覆盖。
  */
-function applyScale(elapsedMs = 0): void {
+function applyTransform(elapsedMs = 0): void {
   if (!sprite) return
   const f = breathCurve(elapsedMs, breathPeriodMs)
   sprite.scale.x = baseScaleX * (1 - breathAmountX * f) * facingSign
   sprite.scale.y = baseScaleY * (1 + breathAmountY * f)
+  if (shakeAngle || shakeX) {
+    // 正弦抖动：一个周期内左右各一次，"抓狂"看的是频率而不是幅度
+    const phase = ((elapsedMs % shakePeriodMs) / shakePeriodMs) * Math.PI * 2
+    const s = Math.sin(phase)
+    sprite.rotation = (s * shakeAngle * Math.PI) / 180
+    sprite.x = STAGE_W / 2 + s * shakeX
+  } else {
+    sprite.rotation = 0
+    sprite.x = STAGE_W / 2
+  }
   // 供调试/冒烟读取，避免为了取缩放值反复截图
   ;(window as unknown as { __petBreath?: unknown }).__petBreath = {
-    f: Number(f.toFixed(4)), scaleX: Number(sprite.scale.x.toFixed(4)), scaleY: Number(sprite.scale.y.toFixed(4)),
+    f: Number(f.toFixed(4)),
+    scaleX: Number(sprite.scale.x.toFixed(4)),
+    scaleY: Number(sprite.scale.y.toFixed(4)),
+    rotation: Number(sprite.rotation.toFixed(4)),
+    x: Number(sprite.x.toFixed(2)),
   }
 }
 
@@ -273,7 +313,7 @@ async function applySkin(skinId: string): Promise<void> {
   if (!idle) throw new Error('皮肤无可用帧')
 
   stopFrameTimer()
-  stopBreathTimer()
+  stopTransformTimer()
   if (sprite) {
     app?.stage.removeChild(sprite)
     sprite.destroy()
@@ -323,7 +363,7 @@ function applyDisplaySize(): void {
   // 记下基准缩放：后续呼吸/朝向都在此之上叠加，不能直接改 scale
   baseScaleX = Math.abs(sprite.scale.x)
   baseScaleY = Math.abs(sprite.scale.y)
-  applyScale(0)
+  applyTransform(0)
 }
 
 /** 漫游朝向：walk 且 facing=left 时水平翻转；其余动作恢复正向。 */
@@ -331,13 +371,13 @@ function applyFacing(): void {
   if (!sprite) return
   const left = props.state.action === 'walk' && props.state.facing === 'left'
   facingSign = left ? -1 : 1
-  applyScale(0)   // 切动作时呼吸归位，避免带着上一动作的幅度
+  applyTransform(0)   // 切动作时呼吸归位，避免带着上一动作的幅度
   diag({ facing: left ? 'left' : 'right' })
 }
 
 onBeforeUnmount(() => {
   stopFrameTimer()
-  stopBreathTimer()
+  stopTransformTimer()
   app?.destroy(true)
 })
 
