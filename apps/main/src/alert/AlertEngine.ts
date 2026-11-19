@@ -66,6 +66,13 @@ export class AlertEngine extends EventEmitter {
   }
 
   private evaluate(rule: AlertRule, s: QuoteSnapshot): ['up' | 'down', number, string] | null {
+    // 触及涨跌停：开关型信号，不看阈值（value 只用于记录方向）
+    if (rule.metric === 'atLimit') {
+      const price = s.price == null ? '' : ` ${s.price.toFixed(2)}`
+      if (s.atLimit === 'up') return ['up', 1, `${s.name} 触及涨停${price}`]
+      if (s.atLimit === 'down') return ['down', -1, `${s.name} 触及跌停${price}`]
+      return null
+    }
     const derived = metricValue(rule.metric, s)
     if (derived === null) return null
     const { value, label } = derived
@@ -74,17 +81,19 @@ export class AlertEngine extends EventEmitter {
       ? value >= rule.threshold
       : value > rule.threshold
     const dir = directionOf(rule.metric, value)
-    const unit = rule.metric === 'streakUp' || rule.metric === 'streakDown' ? ' 天' : ''
+    const unit = rule.metric === 'streakUp' || rule.metric === 'streakDown' ? ' 天'
+      : rule.metric === 'changePct' || rule.metric === 'speedPct' ? '%'
+        : ''
     switch (rule.op) {
       case 'above':
         if (aboveHit) return [dir, value, `${s.name} ${label}，达到阈值 ${rule.threshold}${unit}`]
         return null
       case 'below':
-        if (value < rule.threshold) return [dir, value, `${s.name} ${label}，低于阈值 ${rule.threshold}`]
+        if (value < rule.threshold) return [dir, value, `${s.name} ${label}，低于阈值 ${rule.threshold}${unit}`]
         return null
       case 'absAbove':
         if (Math.abs(value) >= rule.threshold)
-          return [dir, value, `${s.name} ${label}，绝对值达到 ±${rule.threshold}`]
+          return [dir, value, `${s.name} ${label}，绝对值达到 ±${rule.threshold}${unit}`]
         return null
     }
     return null
@@ -114,6 +123,11 @@ function metricValue(metric: AlertRule['metric'], s: QuoteSnapshot): { value: nu
       return s.streakDays == null ? null : { value: s.streakDays, label: `已连涨 ${s.streakDays} 天` }
     case 'streakDown':
       return s.streakDays == null ? null : { value: -s.streakDays, label: `已连跌 ${-s.streakDays} 天` }
+    case 'speedPct':
+      // 近 3 分钟涨跌：由主进程的 SpeedTracker 注入
+      return s.speedPct == null ? null : { value: s.speedPct, label: `3 分钟急${s.speedPct >= 0 ? '涨' : '跌'} ${fmt(s.speedPct)}` }
+    case 'atLimit':
+      return null   // 在上面特判，不走阈值比较
   }
 }
 

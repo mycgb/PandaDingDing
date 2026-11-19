@@ -159,4 +159,51 @@ assert.equal(isDndNow([{ start: '23:00', end: '01:00' }], true, new Date('2026-1
 assert.equal(isDndNow([{ start: '23:00', end: '01:00' }], true, new Date('2026-11-17T00:30:00')), true)
 assert.equal(isDndNow([{ start: '23:00', end: '01:00' }], true, new Date('2026-11-17T10:00:00')), false)
 
+/* ---------- 异动雷达：3 分钟涨速 ---------- */
+{
+  const { engine } = makeEngine({ metric: 'speedPct', op: 'absAbove', threshold: 1.5 })
+  const s = snap(0.2); s.speedPct = 1.8
+  const fired = engine.feed([s])
+  assert.equal(fired.length, 1)
+  assert.equal(fired[0].direction, 'up')
+  assert.ok(fired[0].message.includes('3 分钟急涨'), fired[0].message)
+}
+{
+  const { engine } = makeEngine({ metric: 'speedPct', op: 'absAbove', threshold: 1.5 })
+  const s = snap(0.2); s.speedPct = -1.9
+  const fired = engine.feed([s])
+  assert.equal(fired.length, 1)
+  assert.equal(fired[0].direction, 'down')
+  assert.ok(fired[0].message.includes('3 分钟急跌'), fired[0].message)
+}
+{
+  // 涨速数据未就绪（刚启动/刚加自选）→ null，不能误报
+  const { engine } = makeEngine({ metric: 'speedPct', op: 'absAbove', threshold: 1.5 })
+  const s = snap(0.2); s.speedPct = null
+  assert.equal(engine.feed([s]).length, 0)
+}
+
+/* ---------- 异动雷达：触及涨跌停 ---------- */
+{
+  const { engine } = makeEngine({ metric: 'atLimit', op: 'above', threshold: 1 })
+  const s = snap(10); s.atLimit = 'up'
+  const fired = engine.feed([s])
+  assert.equal(fired.length, 1)
+  assert.equal(fired[0].direction, 'up')
+  assert.ok(fired[0].message.includes('触及涨停'), fired[0].message)
+}
+{
+  const { engine } = makeEngine({ metric: 'atLimit', op: 'above', threshold: 1 })
+  const s = snap(-10); s.atLimit = 'down'
+  const fired = engine.feed([s])
+  assert.equal(fired.length, 1)
+  assert.equal(fired[0].direction, 'down')
+  assert.ok(fired[0].message.includes('触及跌停'), fired[0].message)
+}
+{
+  // 没封板不触发
+  const { engine } = makeEngine({ metric: 'atLimit', op: 'above', threshold: 1 })
+  assert.equal(engine.feed([snap(1)]).length, 0)
+}
+
 console.log('alert-engine: all tests passed')

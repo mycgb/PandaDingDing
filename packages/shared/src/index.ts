@@ -60,6 +60,10 @@ export interface QuoteSnapshot {
   volumeBaseline?: number | null
   /** 派生指标：连涨（正）/连跌（负）天数，由主进程根据日K注入，用于 streakUp/streakDown 判定 */
   streakDays?: number | null
+  /** 派生指标：近 3 分钟涨跌 %，由主进程价格环形缓冲算出（异动雷达） */
+  speedPct?: number | null
+  /** 派生指标：当前是否封在涨停/跌停（atLimit 规则用） */
+  atLimit?: 'up' | 'down' | null
 }
 
 export interface WatchItem {
@@ -76,8 +80,14 @@ export interface WatchItem {
   costPrice: number
 }
 
-/** 提醒指标。volumeMultiple=成交量倍数；streakUp/streakDown=连涨/连跌天数（阈值为天数） */
-export type AlertMetric = 'changePct' | 'price' | 'volumeMultiple' | 'streakUp' | 'streakDown'
+/**
+ * 提醒指标。
+ * volumeMultiple=成交量倍数；streakUp/streakDown=连涨/连跌天数（阈值为天数）；
+ * speedPct=近 3 分钟涨跌 %（异动雷达）；atLimit=触及涨停/跌停（阈值忽略）
+ */
+export type AlertMetric =
+  | 'changePct' | 'price' | 'volumeMultiple' | 'streakUp' | 'streakDown'
+  | 'speedPct' | 'atLimit'
 export type AlertOp = 'above' | 'below' | 'absAbove'
 export type AlertCooldown = 'oncePerDay' | string  // 'minutes:30'
 

@@ -8,6 +8,7 @@ import { bindFetch as bindTX } from './data-source/TencentAdapter.ts'
 import { bindFetch as bindFund } from './data-source/FundAdapter.ts'
 import { QuoteScheduler } from './scheduler/QuoteScheduler.ts'
 import { AlertEngine, isDndNow } from './alert/AlertEngine.ts'
+import { SpeedTracker, limitStateOf } from './alert/intraday.ts'
 import { enrichDerived } from './alert/derivedMetrics.ts'
 import { portfolioPct, resolvePetState, baseMoodState, type MoodThresholds } from './pet/petState.ts'
 import { RoamController } from './pet/RoamController.ts'
@@ -57,6 +58,8 @@ let scheduler: QuoteScheduler
 let alertEngine: AlertEngine
 /** K线服务单例：IPC 查询与提醒派生指标共用同一份 10 分钟缓存 */
 let klineSvc: KlineService
+/** 盘中价格缓冲：算 3 分钟涨速（异动雷达），不额外请求接口 */
+const speedTracker = new SpeedTracker()
 let settings: AppSettings
 let latestSnapshots: QuoteSnapshot[] = []
 /** 大盘指数（温度条用，与自选分开存，避免混入组合涨跌计算） */
@@ -830,6 +833,13 @@ async function pollOnce(): Promise<void> {
   scheduler.setBackoff(dsm.backoff)
   // 成交量倍数 / 连涨连跌规则需要日K派生数据；无相关规则时零开销，K线有 10 分钟缓存
   await enrichDerived(latestSnapshots, store.listRules(), klineSvc, new Date(), log)
+  // 异动雷达：本轮价格入环形缓冲，再算 3 分钟涨速与涨跌停状态
+  const now = Date.now()
+  speedTracker.ingest(latestSnapshots, now)
+  for (const s of latestSnapshots) {
+    s.speedPct = speedTracker.speedOf(s.secId, now)
+    s.atLimit = limitStateOf({ price: s.price, prevClose: s.prevClose, code: s.code, name: s.name, market: s.market })
+  }
   alertEngine.feed(latestSnapshots)
   pushPetState()
 }

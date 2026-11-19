@@ -34,7 +34,7 @@ const ruleSchema = z.object({
   id: z.string().min(1),
   scope: z.enum(['global', 'security']),
   secId: z.string().regex(/^(0|1|105|106|107|116|150)\.[A-Za-z0-9.]{1,10}$/).optional().nullable(),
-  metric: z.enum(['changePct', 'price', 'volumeMultiple', 'streakUp', 'streakDown']),
+  metric: z.enum(['changePct', 'price', 'volumeMultiple', 'streakUp', 'streakDown', 'speedPct', 'atLimit']),
   op: z.enum(['above', 'below', 'absAbove']),
   threshold: z.number().min(0.1).max(100),
   cooldown: z.string(),

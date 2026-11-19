@@ -22,7 +22,7 @@
           <td>{{ r.scope === 'global' ? '全局' : '标的' }}</td>
           <td>{{ r.scope === 'global' ? '—' : nameOf(r.secId!) }}</td>
           <td>{{ metricLabel(r.metric) }}</td>
-          <td class="mono">{{ opLabel(r.op) }} {{ r.threshold }}{{ unitOf(r.metric) }}</td>
+          <td class="mono">{{ r.metric === 'atLimit' ? '触发即报' : `${opLabel(r.op)} ${r.threshold}${unitOf(r.metric)}` }}</td>
           <td>{{ cooldownLabel(r.cooldown) }}</td>
           <td><span class="state-pill" :class="{ on: r.enabled }">{{ r.enabled ? '启用中' : '已停用' }}</span></td>
           <td class="ops">
@@ -93,17 +93,21 @@
             <option value="volumeMultiple">成交量倍数（相对近5日均量）</option>
             <option value="streakUp">连涨天数</option>
             <option value="streakDown">连跌天数</option>
+            <option value="speedPct">3 分钟急涨急跌 %（异动雷达）</option>
+            <option value="atLimit">触及涨停 / 跌停</option>
           </select>
         </label>
         <label>条件
-          <select v-model="editing.op">
+          <select v-model="editing.op" :disabled="editing.metric === 'atLimit'">
             <option value="absAbove">绝对值达到 ±</option>
             <option value="above">高于 / 达到</option>
             <option value="below">低于</option>
           </select>
         </label>
-        <label>阈值{{ editing.metric === 'streakUp' || editing.metric === 'streakDown' ? '（天）' : editing.metric === 'volumeMultiple' ? '（倍）' : '' }}
-          <input v-model.number="editing.threshold" type="number" step="0.1" min="0.1" :max="editing.metric === 'changePct' ? 20 : 100" required />
+        <label>阈值{{ thresholdUnitHint }}
+          <input v-if="editing.metric !== 'atLimit'" v-model.number="editing.threshold" type="number" step="0.1" min="0.1"
+                 :max="editing.metric === 'changePct' || editing.metric === 'speedPct' ? 20 : 100" required />
+          <input v-else disabled value="无需填写" />
         </label>
         <label>冷却
           <select v-model="editing.cooldown">
@@ -121,7 +125,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { api } from '../../api'
 import type { AlertRule, WatchItem, TimeAlert } from '@shared/index'
 
@@ -132,6 +136,16 @@ const isNew = ref(false)
 const timeAlerts = ref<TimeAlert[]>([])
 const newTime = ref('09:25')
 const newLabel = ref('')
+
+/** 阈值输入框的单位后缀 */
+const thresholdUnitHint = computed(() => {
+  const m = editing.value?.metric
+  if (m === 'streakUp' || m === 'streakDown') return '（天）'
+  if (m === 'volumeMultiple') return '（倍）'
+  if (m === 'changePct' || m === 'speedPct') return '（%）'
+  if (m === 'atLimit') return ''
+  return '（元）'
+})
 
 onMounted(async () => {
   rules.value = await api.rulesList()
@@ -191,6 +205,8 @@ async function save(): Promise<void> {
     // "An object could not be cloned"；id 由 newRule 预生成。
     const plain = JSON.parse(JSON.stringify(editing.value)) as AlertRule
     if (!plain.id) plain.id = `rule-${Date.now()}`
+    // 触及涨跌停是开关型信号：不读阈值，但 DB/IPC 要求 >= 0.1，统一存 1
+    if (plain.metric === 'atLimit') { plain.threshold = 1; plain.op = 'above' }
     await api.rulesUpsert(plain)
     rules.value = await api.rulesList()
     editing.value = null
@@ -223,11 +239,12 @@ function metricLabel(m: string): string {
   const map: Record<string, string> = {
     changePct: '涨跌幅', price: '价格', volumeMultiple: '成交量倍数',
     streakUp: '连涨天数', streakDown: '连跌天数',
+    speedPct: '3 分钟涨速', atLimit: '涨跌停',
   }
   return map[m] ?? m
 }
 function unitOf(m: string): string {
-  if (m === 'changePct') return '%'
+  if (m === 'changePct' || m === 'speedPct') return '%'
   if (m === 'volumeMultiple') return ' 倍'
   if (m === 'streakUp' || m === 'streakDown') return ' 天'
   return ''
