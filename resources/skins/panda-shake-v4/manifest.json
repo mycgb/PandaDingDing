@@ -9,7 +9,7 @@
     "idle-frown":  { "frames": 4, "loop": false, "from": "sad", "next": "idle", "fps": 6 },
     "happy":       { "frames": 4, "loop": false, "from": "happy", "next": "idle", "fps": 6 },
     "sad":         { "frames": 4, "loop": false, "from": "sad", "next": "idle", "fps": 6 },
-    "sleepy":      { "frames": 4, "loop": true, "fps": 3 },
+    "sleepy":      { "frames": 4, "loop": true, "fps": 1.5 },
     "panic-happy": { "frames": 4, "loop": false, "from": "happy", "next": "idle", "fps": 8 },
     "panic-sad":   { "frames": 4, "loop": false, "from": "sad", "next": "idle", "fps": 8 },
     "walk":        { "frames": 4, "loop": true, "fps": 4 },
