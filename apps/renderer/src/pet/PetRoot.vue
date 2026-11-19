@@ -60,7 +60,8 @@ onMounted(async () => {
     pushBubble({ kind: 'alert', text: `⚠ ${e.secName} ${e.value >= 0 ? '+' : ''}${e.value.toFixed(2)}%`, tone: e.direction === 'up' ? 'up' : 'down' }, 8000)
   })
   onNotice((n: SystemNotice) => {
-    pushBubble({ kind: 'system', text: n.message }, 5000)
+    // 定时时点提醒要能"叫醒"人：level=alert 时按提醒样式展示，睡觉期间也不拦
+    pushBubble({ kind: n.level === 'alert' ? 'alert' : 'system', text: n.message }, n.level === 'alert' ? 8000 : 5000)
   })
   onQuote((snaps: QuoteSnapshot[]) => {
     latest.value = snaps

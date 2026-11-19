@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Tray, Menu, screen, nativeImage, clipboard } from 'electron'
+import { app, BrowserWindow, Tray, Menu, screen, nativeImage, clipboard, globalShortcut } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
 import { DataStore } from './store/DataStore.ts'
@@ -16,7 +16,7 @@ import { registerIpc } from './ipc/handlers.ts'
 import { suggest, BUILTIN_ETF, parseClipboardCode } from './search/suggest.ts'
 import { setPetWindow } from './windows/petWindowAccess.ts'
 import { KlineService, bindFetch as bindKline } from './kline/KlineService.ts'
-import { IPC, phaseOf, DEFAULT_SETTINGS, type AppSettings, type QuoteSnapshot, type WatchItem, type PetState, type ClosingReport } from '../../../packages/shared/src/index.ts'
+import { IPC, phaseOf, isTradingDay, DEFAULT_SETTINGS, type AppSettings, type QuoteSnapshot, type WatchItem, type PetState, type ClosingReport, type TimeAlert } from '../../../packages/shared/src/index.ts'
 import { pathToFileURL } from 'node:url'
 
 const IS_DEV = !!process.env.PETTICKER_DEV
@@ -63,6 +63,10 @@ let alertHoldUntil = 0
 let lastAlertDirection: 'up' | 'down' | null = null
 /** 桌宠窗口本次交互是否发生过位移（用于区分单击/拖拽） */
 let petMoved = false
+/** 老板键隐身态：只影响当前运行期，不写 petVisible，避免下次启动"桌宠不见了" */
+let bossHidden = false
+/** 当前已注册的老板键组合（用于改键时精确解绑） */
+let bossAccel: string | null = null
 
 /** 桌宠窗口尺寸（含气泡区）；与渲染层 PetStage 的 STAGE_W/H 保持一致 */
 const PET_W = 160
@@ -175,6 +179,7 @@ function start(): void {
   }
   ensureDefaultRule()
   ensureDefaultSkin()
+  ensureDefaultTimeAlerts()
 
   dsm = new DataSourceManager(log)
   dsm.on('notice', (n) => broadcast(IPC.push.systemNotice, n))
@@ -198,6 +203,8 @@ function start(): void {
     getSnapshots: () => latestSnapshots,
     onSettingChanged: (s) => {
       const prevSkin = settings.skin
+      const prevBossEnabled = settings.bossKeyEnabled
+      const prevBossAccel = settings.bossKeyAccelerator
       settings = s
       // 皮肤更换：基础托盘图可能变化，强制重建图标
       if (s.skin !== prevSkin) {
@@ -207,6 +214,11 @@ function start(): void {
       }
       // 角标开关变化后立即刷新（开→显示角标，关→回基础图）
       updateTrayBadge(portfolioPct(latestSnapshots, store.listWatchlist()), Date.now() < alertHoldUntil)
+      // 老板键开关或组合键变了：立即重新注册，不必重启应用
+      if (s.bossKeyEnabled !== prevBossEnabled || s.bossKeyAccelerator !== prevBossAccel) {
+        registerBossKey()
+        refreshTray()
+      }
       // 免打扰时段改了要立刻反映到桌宠（否则要等下一轮轮询才躺下/起身）
       pushPetState()
     },
@@ -219,6 +231,7 @@ function start(): void {
     setPetVisible: (visible) => setPetVisible(visible),
     refreshTray: () => refreshTray(),
     setAutoStart: (enabled) => applyAutoStart(enabled),
+    refreshTimeAlerts: () => checkTimeAlerts(),
   })
   // 启动时同步一次自启设置，防止系统侧被外部改动后与设置页不一致
   try { applyAutoStart(settings.autoStart) } catch (e) { log('同步开机自启失败:', e) }
@@ -226,13 +239,15 @@ function start(): void {
   createTray()
   createPetWindow()
   createRoamController()
+  registerBossKey()
+  startTimeAlerts()
   scheduler.start(settings.pollIntervalMs)
   startClipboardWatch()
 
   app.on('online', () => { dsm.setOnline(true); scheduler.start(settings.pollIntervalMs) })
   app.on('offline', () => { dsm.setOnline(false); broadcast(IPC.push.systemNotice, { type: 'network', message: '网络已断开' }) })
   app.on('window-all-closed', () => { /* 托盘常驻 */ })
-  app.on('before-quit', () => { scheduler.stop(); dsm.dispose(); stopClipboardWatch(); roamCtrl?.stop(); store.close() })
+  app.on('before-quit', () => { try { globalShortcut.unregisterAll() } catch { /* 已退出 */ } stopTimeAlerts(); scheduler.stop(); dsm.dispose(); stopClipboardWatch(); roamCtrl?.stop(); store.close() })
 }
 
 /* ---------- 剪贴板侦听（P2） ---------- */
@@ -324,6 +339,73 @@ function ensureDefaultRule(): void {
       threshold: 3, cooldown: 'oncePerDay', enabled: true,
     })
   }
+}
+
+/* ---------- 定时时点提醒 ---------- */
+
+/** 上班盯盘最容易错过的几个时点（首次启动写入，用户可改可删） */
+const DEFAULT_TIME_ALERTS: { time: string; label: string }[] = [
+  { time: '09:25', label: '集合竞价，看今日开盘' },
+  { time: '11:20', label: '午盘前，是否调整仓位' },
+  { time: '14:45', label: '决定今天是否持股过夜' },
+  { time: '14:55', label: '尾盘 5 分钟' },
+]
+
+function ensureDefaultTimeAlerts(): void {
+  try {
+    if (store.listTimeAlerts().length > 0) return
+    for (const d of DEFAULT_TIME_ALERTS) {
+      store.upsertTimeAlert({
+        id: `builtin-${d.time.replace(':', '')}`,
+        time: d.time, label: d.label, enabled: true, workdayOnly: true,
+      })
+    }
+    log('已写入默认定时提醒', DEFAULT_TIME_ALERTS.length, '条')
+  } catch (e) { log('写入默认定时提醒失败:', e) }
+}
+
+let timeAlertTimer: NodeJS.Timeout | null = null
+
+function startTimeAlerts(): void {
+  stopTimeAlerts()
+  // 20 秒扫一次而不是整分一次：系统休眠/时钟漂移时不会整天跳过某个时点
+  timeAlertTimer = setInterval(checkTimeAlerts, 20_000)
+  timeAlertTimer.unref?.()
+  checkTimeAlerts()
+}
+
+function stopTimeAlerts(): void {
+  if (timeAlertTimer) { clearInterval(timeAlertTimer); timeAlertTimer = null }
+}
+
+function checkTimeAlerts(): void {
+  try {
+    const now = new Date()
+    const hm = fmtHM(now)
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+    for (const a of store.dueTimeAlerts(hm, today)) {
+      // 工作日限定：周末与节假日不响
+      if (a.workdayOnly && !isTradingDay(now)) continue
+      // 先落标记再判断免打扰：20 秒扫描会在同一分钟命中 3 次，必须先占位
+      store.markTimeAlertFired(a.id, today)
+      if (isDndNow(settings.dndRanges, settings.dndEnabled, now)) {
+        log('定时提醒命中免打扰，静默:', a.time, a.label)
+        continue
+      }
+      fireTimeAlert(a)
+    }
+  } catch (e) { log('定时提醒检查失败:', e) }
+}
+
+function fireTimeAlert(a: TimeAlert): void {
+  log('定时提醒触发:', a.time, a.label)
+  // 气泡里不再重复时间（列表里已有），避免 11px 字号下折成三行
+  broadcast(IPC.push.systemNotice, { type: 'reminder', message: `⏰ ${a.label}`, level: 'alert' })
+  // 复用提醒的 8 秒保持窗口：桌宠跳一下，气泡停留足够看完
+  alertHoldUntil = Date.now() + 8000
+  lastAlertDirection = 'up'
+  pushPetState()
+  setTimeout(pushPetState, 8000).unref?.()
 }
 
 /**
@@ -465,6 +547,8 @@ function createRoamController(): void {
 }
 
 function createPanelWindow(): void {
+  // 老板键隐身期间用户主动打开面板 = 要退出隐身，否则会"面板出现了桌宠还藏着"
+  if (bossHidden) { bossHidden = false; if (settings.petVisible) petWin?.showInactive(); refreshTray() }
   roamCtrl?.notifyUserActivity()   // 用户交互：中断漫游
   if (panelWin) { panelWin.show(); panelWin.focus(); return }
   const primary = screen.getPrimaryDisplay()
@@ -491,6 +575,8 @@ function createPanelWindow(): void {
 }
 
 function setPetVisible(visible: boolean): void {
+  // 显式要求显示 → 同时退出老板键隐身态，避免"点了显示却看不到"
+  if (visible && bossHidden) { bossHidden = false; refreshTray() }
   if (visible) petWin?.showInactive()
   else petWin?.hide()
   settings.petVisible = visible
@@ -503,6 +589,50 @@ function setClickThrough(on: boolean): void {
   // 不再持久化：穿透仅当次运行有效，重启后自动恢复可交互，避免"桌宠点不动"卡死
   petWin?.setIgnoreMouseEvents(on, { forward: true })
   refreshTray()
+}
+
+/* ---------- 老板键 ---------- */
+
+/**
+ * 老板键：全局热键一键隐藏桌宠 + 管理面板，再按一次恢复。
+ * 隐身态只存在于本次运行（bossHidden），不改 settings.petVisible——
+ * 否则用户下次启动会发现"桌宠不见了"，却不知道是被老板键写的。
+ */
+function toggleBossHidden(): void {
+  bossHidden = !bossHidden
+  if (bossHidden) {
+    petWin?.hide()
+    panelWin?.hide()
+    roamCtrl?.notifyUserActivity()   // 隐身时停止漫游，避免后台继续移动
+    log('老板键：隐藏')
+  } else {
+    if (settings.petVisible) petWin?.showInactive()
+    if (panelWin && !panelWin.isDestroyed()) { panelWin.show(); panelWin.focus() }
+    log('老板键：恢复')
+  }
+  refreshTray()
+}
+
+/** 注册/更新老板键；组合键被占用时保持静默失败并记日志（不阻塞启动） */
+function registerBossKey(): void {
+  if (bossAccel) {
+    try { globalShortcut.unregister(bossAccel) } catch { /* 已失效 */ }
+    bossAccel = null
+  }
+  if (!settings.bossKeyEnabled) { log('老板键已关闭'); return }
+  const accel = (settings.bossKeyAccelerator || DEFAULT_SETTINGS.bossKeyAccelerator).trim()
+  if (!accel) return
+  try {
+    const ok = globalShortcut.register(accel, () => toggleBossHidden())
+    if (ok) {
+      bossAccel = accel
+      log('老板键已注册:', accel)
+    } else {
+      log('老板键注册失败（组合键可能已被其他程序占用）:', accel)
+    }
+  } catch (e) {
+    log('老板键注册异常:', e)
+  }
 }
 
 /* ---------- 托盘 ---------- */
@@ -563,6 +693,12 @@ function refreshTray(): void {
   items.push(
     { label: '打开管理面板', click: () => createPanelWindow() },
     { label: settings.petVisible ? '隐藏桌宠' : '显示桌宠', click: () => setPetVisible(!settings.petVisible) },
+    {
+      label: bossHidden
+        ? '🔒 已隐藏（点击恢复显示）'
+        : `🔒 一键隐藏（${shortAccel(settings.bossKeyAccelerator)}）`,
+      click: () => toggleBossHidden(),
+    },
     { label: ct ? '（已开启点击穿透）' : '开启点击穿透', click: () => { setClickThrough(!ct); refreshTray() } },
     { label: '免打扰 30 分钟', click: () => {
       const r = { start: fmtHM(new Date()), end: fmtHM(new Date(Date.now() + 30 * 60_000)) }
@@ -585,6 +721,13 @@ function refreshTray(): void {
 
 function fmtHM(d: Date): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+/** Accelerator → 托盘里的短标签（CommandOrControl+Shift+H → Ctrl+Shift+H） */
+function shortAccel(a: string): string {
+  return (a || DEFAULT_SETTINGS.bossKeyAccelerator)
+    .replace(/CommandOrControl|CmdOrCtrl/gi, 'Ctrl')
+    .replace(/\s+/g, '')
 }
 
 /* ---------- 轮询与提醒 ---------- */

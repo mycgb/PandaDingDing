@@ -23,6 +23,9 @@ const api = {
   quoteLatest: invoke('quoteLatest'),
   alertHistory: invoke('alertHistory'),
   alertResetCooldown: invoke('alertResetCooldown'),
+  timeAlertsList: invoke('timeAlertsList'),
+  timeAlertsUpsert: invoke('timeAlertsUpsert'),
+  timeAlertsDelete: invoke('timeAlertsDelete'),
   // pet / dsm
   petSetInteraction: invoke('petSetInteraction'),
   petSetVisible: invoke('petSetVisible'),

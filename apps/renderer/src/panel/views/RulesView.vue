@@ -35,6 +35,42 @@
     </table>
     <div v-if="!rules.length" class="empty">还没有规则，点右上角「＋ 新建规则」开始。</div>
 
+    <div class="section-head">
+      <h2>定时提醒</h2>
+      <span class="count">{{ timeAlerts.length }} 条</span>
+    </div>
+    <p class="hint">到点响一次，专治“一忙就错过时点”。桌宠会跳一下并显示气泡；命中免打扰时段时静默跳过，同一时点当天不会重复响。</p>
+
+    <table class="rules-table">
+      <colgroup>
+        <col style="width:88px" /><col /><col style="width:104px" />
+        <col style="width:92px" /><col style="width:220px" />
+      </colgroup>
+      <thead>
+        <tr><th>时间</th><th>提醒内容</th><th>触发日</th><th>状态</th><th>操作</th></tr>
+      </thead>
+      <tbody>
+        <tr v-for="t in timeAlerts" :key="t.id">
+          <td class="mono">{{ t.time }}</td>
+          <td><input class="inline-input" v-model="t.label" maxlength="40" @change="saveTimeAlert(t)" /></td>
+          <td>{{ t.workdayOnly ? '仅交易日' : '每天' }}</td>
+          <td><span class="state-pill" :class="{ on: t.enabled }">{{ t.enabled ? '启用中' : '已停用' }}</span></td>
+          <td class="ops">
+            <button class="mini" @click="toggleTimeAlert(t)">{{ t.enabled ? '停用' : '启用' }}</button>
+            <button class="mini" @click="toggleTimeDay(t)">{{ t.workdayOnly ? '改每天' : '改交易日' }}</button>
+            <button class="mini danger" @click="removeTimeAlert(t.id)">删除</button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <div v-if="!timeAlerts.length" class="empty">还没有定时提醒，下面加一条。</div>
+
+    <div class="add-row">
+      <input type="time" v-model="newTime" />
+      <input class="label-input" v-model="newLabel" maxlength="40" placeholder="提醒内容，如：决定今天是否过夜" />
+      <button class="primary" @click="addTimeAlert">＋ 添加</button>
+    </div>
+
     <div v-if="editing" class="editor">
       <h3>{{ isNew ? '新建规则' : '编辑规则' }}</h3>
       <form @submit.prevent="save">
@@ -87,17 +123,51 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { api } from '../../api'
-import type { AlertRule, WatchItem } from '@shared/index'
+import type { AlertRule, WatchItem, TimeAlert } from '@shared/index'
 
 const rules = ref<AlertRule[]>([])
 const watchlist = ref<WatchItem[]>([])
 const editing = ref<Partial<AlertRule> | null>(null)
 const isNew = ref(false)
+const timeAlerts = ref<TimeAlert[]>([])
+const newTime = ref('09:25')
+const newLabel = ref('')
 
 onMounted(async () => {
   rules.value = await api.rulesList()
   watchlist.value = await api.watchlistList()
+  timeAlerts.value = await api.timeAlertsList()
 })
+
+/** ref 元素是 Proxy，IPC 结构化克隆会报错，统一转普通对象 */
+function plain<T>(v: T): T { return JSON.parse(JSON.stringify(v)) as T }
+
+async function reloadTimeAlerts(): Promise<void> { timeAlerts.value = await api.timeAlertsList() }
+
+async function saveTimeAlert(t: TimeAlert): Promise<void> {
+  try { await api.timeAlertsUpsert(plain(t)) } catch (e) { alert('保存失败：' + (e as Error).message) }
+  await reloadTimeAlerts()
+}
+async function toggleTimeAlert(t: TimeAlert): Promise<void> {
+  await saveTimeAlert({ ...plain(t), enabled: !t.enabled })
+}
+async function toggleTimeDay(t: TimeAlert): Promise<void> {
+  await saveTimeAlert({ ...plain(t), workdayOnly: !t.workdayOnly })
+}
+async function removeTimeAlert(id: string): Promise<void> {
+  await api.timeAlertsDelete(id)
+  await reloadTimeAlerts()
+}
+async function addTimeAlert(): Promise<void> {
+  const label = newLabel.value.trim() || '看盘'
+  if (!newTime.value) return
+  await api.timeAlertsUpsert({
+    id: `time-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    time: newTime.value, label, enabled: true, workdayOnly: true,
+  })
+  newLabel.value = ''
+  await reloadTimeAlerts()
+}
 
 function newRule(): void {
   isNew.value = true
@@ -216,4 +286,19 @@ button:hover { background: var(--hover); }
 .state-pill { font-size: 11px; padding: 2px 9px; border-radius: 10px; background: var(--bg); color: var(--text-tertiary); white-space: nowrap; }
 .state-pill.on { background: rgba(29,185,84,.12); color: #1db954; }
 .empty { padding: 26px 0; text-align: center; font-size: 12px; color: var(--text-tertiary); }
+.section-head { display: flex; align-items: baseline; gap: 8px; margin: 28px 0 6px; }
+.section-head h2 { font-size: 15px; font-weight: 600; color: var(--text); margin: 0; }
+.section-head .count { font-size: 11px; color: var(--text-tertiary); }
+.inline-input {
+  width: 100%; padding: 4px 8px; border: 1px solid transparent; border-radius: 6px;
+  background: transparent; color: var(--text); font-size: 13px;
+}
+.inline-input:hover { border-color: var(--border); }
+.inline-input:focus { outline: none; border-color: var(--accent); background: var(--surface); }
+.add-row { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+.add-row input {
+  padding: 6px 9px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface); color: var(--text); font-size: 13px;
+}
+.add-row .label-input { flex: 1; max-width: 340px; }
 </style>

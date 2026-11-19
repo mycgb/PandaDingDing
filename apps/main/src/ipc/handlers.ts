@@ -21,6 +21,8 @@ export interface IpcDeps {
   refreshTray?(): void
   /** 开机自启落地（跨平台：win/mac setLoginItemSettings，linux XDG autostart） */
   setAutoStart?(enabled: boolean): void
+  /** 定时提醒增删改后重排调度（下次扫描立即生效） */
+  refreshTimeAlerts?(): void
 }
 
 // secId = 市场号.代码。市场号含 A股0/1、港股116、美股105/106/107、场外基金150；
@@ -102,6 +104,24 @@ export function registerIpc(deps: IpcDeps): void {
   on(IPC.invoke.quoteLatest, () => deps.getSnapshots())
   on(IPC.invoke.alertHistory, (_e, date?: string) => store.listAlertEvents(date))
   on(IPC.invoke.alertResetCooldown, (_e, secId: string) => { secIdSchema.parse(secId); store.resetCooldown(secId) })
+  /* ---------- 定时时点提醒 ---------- */
+  on(IPC.invoke.timeAlertsList, () => store.listTimeAlerts())
+  on(IPC.invoke.timeAlertsUpsert, (_e, alert: unknown) => {
+    const a = z.object({
+      id: z.string().min(1),
+      time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+      label: z.string().min(1).max(40),
+      enabled: z.boolean(),
+      workdayOnly: z.boolean(),
+    }).parse(alert)
+    store.upsertTimeAlert(a)
+    deps.refreshTimeAlerts?.()
+  })
+  on(IPC.invoke.timeAlertsDelete, (_e, id: string) => {
+    z.string().min(1).parse(id)
+    store.deleteTimeAlert(id)
+    deps.refreshTimeAlerts?.()
+  })
   on(IPC.invoke.petSetInteraction, (_e, mode: string) => {
     z.enum(['normal', 'clickThrough']).parse(mode)
     const win = petWin()

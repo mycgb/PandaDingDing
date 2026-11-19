@@ -78,6 +78,17 @@ export interface AlertRule {
 
 export type AlertDirection = 'up' | 'down'
 
+/** 定时时点提醒：到点喊你一声（如 9:25 看集合竞价、14:45 决定是否过夜） */
+export interface TimeAlert {
+  id: string
+  /** 'HH:mm'（24 小时制） */
+  time: string
+  label: string
+  enabled: boolean
+  /** 仅在交易日触发（关闭后每天都响，含周末） */
+  workdayOnly: boolean
+}
+
 export interface AlertEvent {
   id: number
   secId: string
@@ -97,8 +108,13 @@ export interface PetState {
 }
 
 export interface SystemNotice {
-  type: 'dataSource' | 'network' | 'phase' | 'info'
+  type: 'dataSource' | 'network' | 'phase' | 'info' | 'reminder'
   message: string
+  /**
+   * 'alert' = 按提醒处理：桌宠气泡在免打扰/睡觉期间也显示，并伴随动作（定时时点提醒用）。
+   * 缺省为普通提示，睡觉时被拦掉。
+   */
+  level?: 'info' | 'alert'
 }
 
 export interface SuggestItem {
@@ -154,6 +170,8 @@ export interface AppSettings {
   closingReport: boolean   // 收盘自动生成总结报告
   roamEnabled: boolean     // 桌宠漫游：空闲时在桌面底部来回散步（默认开）
   trayBadge: boolean       // 托盘角标：显示组合涨跌红绿点 + hover 快览（默认开）
+  bossKeyEnabled: boolean  // 老板键：全局热键一键隐藏桌宠与面板（默认开）
+  bossKeyAccelerator: string  // 老板键组合键（Electron Accelerator 格式）
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -176,6 +194,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   closingReport: true,
   roamEnabled: true,
   trayBadge: true,
+  bossKeyEnabled: true,
+  bossKeyAccelerator: 'CommandOrControl+Shift+H',
 }
 
 /* ---------- IPC channel 白名单 ---------- */
@@ -195,6 +215,9 @@ export const IPC = {
     quoteLatest: 'quote/latest',
     alertHistory: 'alert/history',
     alertResetCooldown: 'alert/resetCooldown',
+    timeAlertsList: 'time-alerts/list',
+    timeAlertsUpsert: 'time-alerts/upsert',
+    timeAlertsDelete: 'time-alerts/delete',
     petSetInteraction: 'pet/setInteraction',
     petSetVisible: 'pet/setVisible',
     petMove: 'pet/move',
@@ -233,6 +256,9 @@ export type IpcInvokeMap = {
   [IPC.invoke.quoteLatest]: () => QuoteSnapshot[]
   [IPC.invoke.alertHistory]: (date?: string) => AlertEvent[]
   [IPC.invoke.alertResetCooldown]: (secId: string) => void
+  [IPC.invoke.timeAlertsList]: () => TimeAlert[]
+  [IPC.invoke.timeAlertsUpsert]: (alert: TimeAlert) => void
+  [IPC.invoke.timeAlertsDelete]: (id: string) => void
   [IPC.invoke.petSetInteraction]: (mode: 'normal' | 'clickThrough') => void
   [IPC.invoke.petSetVisible]: (visible: boolean) => void
   [IPC.invoke.petMove]: (x: number, y: number) => void

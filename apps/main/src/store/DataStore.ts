@@ -5,7 +5,7 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import {
   DEFAULT_SETTINGS, type AlertRule, type AppSettings, type AlertEvent, type WatchItem, type MarketType,
-  type ClosingReport,
+  type ClosingReport, type TimeAlert,
 } from '../../../../packages/shared/src/index.ts'
 
 type Row = Record<string, unknown>
@@ -13,6 +13,7 @@ type Row = Record<string, unknown>
 const MIGRATIONS: { version: number; file: string }[] = [
   { version: 1, file: '001_init.sql' },
   { version: 2, file: '002_closing_reports.sql' },
+  { version: 3, file: '003_time_alerts.sql' },
 ]
 
 export class DataStore {
@@ -149,6 +150,47 @@ export class DataStore {
     this.db.prepare(
       "DELETE FROM alert_events WHERE sec_id = ? AND date(triggered_at) = date('now','localtime')",
     ).run(secId)
+  }
+
+  /* ---------- time alerts（定时时点提醒） ---------- */
+
+  private mapTimeAlert(r: Row): TimeAlert {
+    return {
+      id: String(r.id), time: String(r.time), label: String(r.label),
+      enabled: !!r.enabled, workdayOnly: !!r.workday_only,
+    }
+  }
+
+  listTimeAlerts(): TimeAlert[] {
+    const rows = this.db.prepare('SELECT * FROM time_alerts ORDER BY time ASC').all() as Row[]
+    return rows.map((r) => this.mapTimeAlert(r))
+  }
+
+  upsertTimeAlert(a: TimeAlert): void {
+    this.db.prepare(`
+      INSERT INTO time_alerts (id, time, label, enabled, workday_only)
+      VALUES (?,?,?,?,?)
+      ON CONFLICT(id) DO UPDATE SET
+        time=excluded.time, label=excluded.label,
+        enabled=excluded.enabled, workday_only=excluded.workday_only
+    `).run(a.id, a.time, a.label, a.enabled ? 1 : 0, a.workdayOnly ? 1 : 0)
+  }
+
+  deleteTimeAlert(id: string): void {
+    this.db.prepare('DELETE FROM time_alerts WHERE id = ?').run(id)
+  }
+
+  /** 当前分钟命中且当日尚未触发的定时提醒（防止轮询在同一分钟内重复响） */
+  dueTimeAlerts(hm: string, today: string): TimeAlert[] {
+    const rows = this.db.prepare(`
+      SELECT * FROM time_alerts
+      WHERE enabled = 1 AND time = ? AND (last_fired_date IS NULL OR last_fired_date <> ?)
+    `).all(hm, today) as Row[]
+    return rows.map((r) => this.mapTimeAlert(r))
+  }
+
+  markTimeAlertFired(id: string, today: string): void {
+    this.db.prepare('UPDATE time_alerts SET last_fired_date = ? WHERE id = ?').run(today, id)
   }
 
   /* ---------- closing reports ---------- */

@@ -110,6 +110,24 @@
     </div>
 
     <div class="card">
+      <h2>上班模式</h2>
+      <label class="row">
+        <span>老板键（全局一键隐藏）</span>
+        <input type="checkbox" v-model="s.bossKeyEnabled" @change="save" />
+      </label>
+      <label class="row">
+        <span>隐藏 / 恢复组合键</span>
+        <select v-model="s.bossKeyAccelerator" @change="save" :disabled="!s.bossKeyEnabled">
+          <option value="CommandOrControl+Shift+H">Ctrl + Shift + H</option>
+          <option value="CommandOrControl+Shift+D">Ctrl + Shift + D</option>
+          <option value="CommandOrControl+Alt+H">Ctrl + Alt + H</option>
+          <option value="CommandOrControl+Alt+P">Ctrl + Alt + P</option>
+        </select>
+      </label>
+      <div class="hint">按一次把桌宠和管理面板一起藏起来，再按一次恢复。隐身态只影响本次运行，不会改「显示桌宠」的设置，下次启动照旧。若组合键被其他软件占用会静默失效，可在托盘菜单看该项是否可点。</div>
+    </div>
+
+    <div class="card">
       <h2>收盘总结报告</h2>
       <button class="mini" @click="loadReports">刷新</button>
       <div v-if="reports.length === 0" class="empty">暂无收盘报告（每个交易日收盘后自动生成）</div>
