@@ -1,12 +1,13 @@
 <template>
   <div class="pet-root">
     <PetStage ref="stage" :state="state" :skin="skin" @open-panel="onOpenPanel" />
-    <BubbleLayer :bubbles="bubbles" :bubble-color="bubbleColor" :font-size="bubbleFontSize" @dismiss="dismiss" />
+    <BubbleLayer :class="{ 'bubble-hidden': sleeping }" :bubbles="bubbles" :bubble-color="bubbleColor"
+                 :font-size="bubbleFontSize" @dismiss="dismiss" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import PetStage from './PetStage.vue'
 import BubbleLayer from './BubbleLayer.vue'
 import { api, onPetState, onAlert, onNotice, onQuote, onSettingsChanged } from '../api'
@@ -19,6 +20,9 @@ const bubbleColor = ref('#14181e')
 const bubbleFontSize = ref(11)
 const bubbles = ref<Bubble[]>([])
 const bubbleAlwaysOn = ref(false)
+
+/** 躺睡状态（收盘 / 免打扰时段）：期间隐藏气泡，做到「睡着就安静」 */
+const sleeping = computed(() => state.value.action === 'sleepy')
 
 interface Bubble {
   id: number
@@ -101,6 +105,7 @@ function configureTicker(): void {
 
 /** 更新/创建常显气泡，显示当前游标指向的自选 */
 function updateAlwaysBubble(): void {
+  if (sleeping.value) return   // 睡觉时不常显，醒来由 watch 补回
   const list = latest.value
   if (!list.length) return
   if (carouselIndex >= list.length) carouselIndex = 0
@@ -121,6 +126,8 @@ function fmtPct(p: number | null): string {
 }
 
 function pushBubble(b: Omit<Bubble, 'id'>, ttlMs: number): void {
+  // 睡觉期间不弹行情/系统气泡；提醒类仍入队，醒来（提醒会立刻把状态切成 panic-*）即可见
+  if (sleeping.value && b.kind !== 'alert') return
   const bubble = { ...b, id: bubbleSeq++ }
   bubbles.value.push(bubble)
   if (bubbles.value.length > 3) bubbles.value.shift()
@@ -137,7 +144,14 @@ function onOpenPanel(): void {
 
 onBeforeUnmount(() => { if (tickTimer) clearInterval(tickTimer) })
 
-watch(() => state.value, () => { /* 状态由 PetStage 内部处理 */ })
+// 进入躺睡：清掉已有气泡（提醒类保留，醒来即可见）；醒来：常显模式立刻补回行情气泡
+watch(sleeping, (asleep) => {
+  if (asleep) {
+    bubbles.value = bubbles.value.filter((b) => b.kind === 'alert')
+    return
+  }
+  if (bubbleAlwaysOn.value) updateAlwaysBubble()
+})
 </script>
 
 <style scoped>
@@ -145,5 +159,13 @@ watch(() => state.value, () => { /* 状态由 PetStage 内部处理 */ })
   position: relative;
   width: 160px;
   height: 210px;
+}
+/* 躺睡时整层气泡淡出并禁止点击（醒来淡入），做过渡避免生硬消失 */
+.pet-root :deep(.bubble-layer) {
+  transition: opacity 0.25s ease;
+}
+.pet-root :deep(.bubble-layer.bubble-hidden) {
+  opacity: 0;
+  pointer-events: none;
 }
 </style>
