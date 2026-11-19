@@ -668,6 +668,8 @@ function watchRenderer(win: BrowserWindow, tag: string): void {
   })
   win.webContents.on('unresponsive', () => log(`[无响应] ${tag}`))
   win.webContents.on('responsive', () => log(`[恢复响应] ${tag}`))
+  // 窗口被销毁时留痕：桌宠/指数条理论上不会被关，出现这条就说明有代码在关它
+  win.on('closed', () => log(`[窗口关闭] ${tag}`))
 }
 
 function createPetWindow(): void {
