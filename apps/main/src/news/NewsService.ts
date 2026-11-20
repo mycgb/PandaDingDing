@@ -90,7 +90,8 @@ export class NewsService {
   private async doFetch(): Promise<NewsResult> {
     const qs = new URLSearchParams({
       client: 'web', biz: 'web_news_col', fastColumn: '102', sortEnd: '0',
-      order: '1', needJumpAd: 'true', pageSize: '30', pageIndex: '1', req_trace: traceId(),
+      // 多拉一些供前端分页浏览（每页 10 条），翻页纯本地、不走网络
+      order: '1', needJumpAd: 'true', pageSize: '50', pageIndex: '1', req_trace: traceId(),
     })
     const res = await this.fetch(`${API}?${qs.toString()}`, {
       headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://kuaixun.eastmoney.com/' },
