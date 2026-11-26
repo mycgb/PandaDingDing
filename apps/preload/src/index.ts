@@ -36,6 +36,8 @@ const api = {
   panelOpen: invoke('panelOpen'),
   panelClose: invoke('panelClose'),
   panelMinimize: invoke('panelMinimize'),
+  panelMaximize: invoke('panelMaximize'),
+  panelIsMaximized: invoke('panelIsMaximized'),
   klineFetch: invoke('klineFetch'),
   trendsFetch: invoke('trendsFetch'),
   skinsList: invoke('skinsList'),

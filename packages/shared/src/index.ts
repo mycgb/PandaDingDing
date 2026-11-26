@@ -127,7 +127,7 @@ export interface AlertEvent {
 }
 
 export interface PetState {
-  action: 'idle' | 'idle-smile' | 'idle-frown' | 'happy' | 'sad' | 'panic-happy' | 'panic-sad' | 'alert-time' | 'sleepy' | 'sleep' | 'walk' | 'offline'
+  action: 'idle' | 'idle-smile' | 'idle-frown' | 'happy' | 'sad' | 'cheer' | 'cry' | 'panic-happy' | 'panic-sad' | 'alert-time' | 'sleepy' | 'sleep' | 'walk' | 'offline'
   reason?: string
   /** 漫游朝向：渲染层据此水平翻转 walk 帧；'left' 时朝左 */
   facing?: 'left' | 'right'
@@ -141,6 +141,11 @@ export interface PetState {
    * 只在 15:00 之后推送，且必须已填持仓股数（否则没有意义）。
    */
   dayPnl?: number | null
+  /**
+   * 盘中实时收益（元）：交易时段随行情刷新，收盘后为 null（由 dayPnl 定格接管）。
+   * null/undefined 表示不显示。
+   */
+  liveDayPnl?: number | null
 }
 
 export interface SystemNotice {
@@ -156,6 +161,14 @@ export interface SystemNotice {
 /** 提示音种类：涨/跌/定时时点/发现新版本。与 resources/sounds/*.wav 一一对应。 */
 export type SoundKind = 'up' | 'down' | 'time' | 'update'
 
+/** 新闻关联的标的：secId + 展示名称（名称查不到时会回退成 secId 本身） */
+export interface NewsStock {
+  /** 市场号.代码，如 0.000672 / 105.AAPL / 90.BK0809 */
+  id: string
+  /** 展示名称，如 上峰材料 / 苹果 / AI智能体 */
+  name: string
+}
+
 /** 今日新闻一条（东方财富全球快讯，免费实时） */
 export interface NewsItem {
   /** 快讯 code，同时用于拼详情页 URL */
@@ -164,8 +177,8 @@ export interface NewsItem {
   summary: string
   /** 展示时间，形如 2026-11-20 07:31:41 */
   time: string
-  /** 关联个股 secId 列表（如 0.000672），可点开行情 */
-  stocks: string[]
+  /** 关联标的（已按行情系统校验、带名称），可点开行情 */
+  stocks: NewsStock[]
   /** 原文详情页 URL */
   url: string
 }
@@ -300,6 +313,14 @@ export interface AppSettings {
   dsNoticeEnabled: boolean
   /** 启动后自动检查新版本（发现新版本时提示，默认开） */
   updateCheckEnabled: boolean
+  /** 今日新闻自动刷新：新闻页每 5 分钟自动拉一次（默认开） */
+  newsAutoRefresh: boolean
+  /** 桌宠底部新闻跑马灯：滚动展示最新快讯（默认开） */
+  newsTickerEnabled: boolean
+  /** 收盘后桌宠头顶「今日收益」胶囊（默认开） */
+  pnlChipEnabled: boolean
+  /** 盘中桌宠头顶「实时收益」胶囊（默认开） */
+  livePnlEnabled: boolean
   /** 默认休息时段是否已并入免打扰列表（一次性迁移标记，避免用户删光后又被塞回来） */
   restRangesSeeded?: boolean
 }
@@ -344,6 +365,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   maxAlertsPerDay: 0,
   dsNoticeEnabled: true,
   updateCheckEnabled: true,
+  newsAutoRefresh: true,
+  newsTickerEnabled: true,
+  pnlChipEnabled: true,
+  livePnlEnabled: true,
 }
 
 /* ---------- IPC channel 白名单 ---------- */
@@ -374,6 +399,8 @@ export const IPC = {
     panelOpen: 'panel/open',
     panelClose: 'panel/close',
     panelMinimize: 'panel/minimize',
+    panelMaximize: 'panel/maximize',
+    panelIsMaximized: 'panel/isMaximized',
     klineFetch: 'kline/fetch',
     trendsFetch: 'trends/fetch',
     skinsList: 'skins/list',
@@ -426,6 +453,8 @@ export type IpcInvokeMap = {
   [IPC.invoke.panelOpen]: () => void
   [IPC.invoke.panelClose]: () => void
   [IPC.invoke.panelMinimize]: () => void
+  [IPC.invoke.panelMaximize]: () => void
+  [IPC.invoke.panelIsMaximized]: () => boolean
   [IPC.invoke.klineFetch]: (secId: string, klt: number, lmt?: number) => KlinePoint[]
   [IPC.invoke.trendsFetch]: (secId: string) => TrendsResult
   [IPC.invoke.skinsList]: () => SkinInfo[]

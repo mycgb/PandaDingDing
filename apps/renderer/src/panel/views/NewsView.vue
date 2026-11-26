@@ -6,9 +6,15 @@
           <h2>今日新闻 · 财经快讯</h2>
           <p class="sub">东方财富全球快讯 · {{ items.length }} 条<span v-if="fetchedAt"> · 更新于 {{ updateTime }}</span></p>
         </div>
-        <button class="refresh" :disabled="loading" @click="refresh(true)">
-          {{ loading ? '加载中…' : '↻ 刷新' }}
-        </button>
+        <div class="head-actions">
+          <label class="auto-toggle" title="每 5 分钟自动拉取最新快讯">
+            <input type="checkbox" :checked="autoRefresh" :disabled="savingAuto" @change="toggleAuto" />
+            <span>自动刷新</span>
+          </label>
+          <button class="refresh" :disabled="loading" @click="refresh(true)">
+            {{ loading ? '加载中…' : '↻ 刷新' }}
+          </button>
+        </div>
       </div>
       <div v-if="stale" class="notice">网络异常，显示的是上次缓存的内容</div>
 
@@ -24,8 +30,8 @@
           <p v-if="n.summary" class="summary">{{ n.summary }}</p>
           <div v-if="n.stocks.length" class="stocks">
             <span class="stocks-label">相关</span>
-            <a v-for="sid in n.stocks" :key="sid" class="stock" :href="quoteUrl(sid)" @click.prevent="open(quoteUrl(sid))">
-              {{ sid }}
+            <a v-for="s in n.stocks" :key="s.id" class="stock" :title="s.id" :href="quoteUrl(s.id)" @click.prevent="open(quoteUrl(s.id))">
+              {{ s.name }}
             </a>
           </div>
         </li>
@@ -37,22 +43,27 @@
         <button class="pg" :disabled="page >= totalPages" @click="turnPage(1)">下一页 ›</button>
       </div>
 
-      <p class="hint">点击标题在浏览器中打开原文；点击「相关」代码查看该股行情。数据来自东方财富，仅供参考，不构成投资建议。</p>
+      <p class="hint">开启「自动刷新」后每 5 分钟自动更新；也可点「刷新」立即拉取。点击标题在浏览器中打开原文，点击「相关」名称查看该股行情。数据来自东方财富，仅供参考，不构成投资建议。</p>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { api } from '../../api'
 import type { NewsItem } from '@shared/index'
 
 const PAGE_SIZE = 10
+/** 自动刷新间隔：与主进程 5 分钟缓存节奏一致，不额外制造请求 */
+const AUTO_REFRESH_MS = 5 * 60_000
 const items = ref<NewsItem[]>([])
 const loading = ref(false)
 const stale = ref(false)
 const fetchedAt = ref(0)
 const page = ref(1)
+const autoRefresh = ref(true)
+const savingAuto = ref(false)
+let autoTimer: ReturnType<typeof setInterval> | null = null
 const totalPages = computed(() => Math.max(1, Math.ceil(items.value.length / PAGE_SIZE)))
 const pagedItems = computed(() => items.value.slice((page.value - 1) * PAGE_SIZE, page.value * PAGE_SIZE))
 /** 翻页必须钳制边界：快速连点时 Vue 还没重渲染、按钮 disabled 仍是旧值，裸 page++ 会越过末页变成空页 */
@@ -72,9 +83,12 @@ function shortTime(t: string): string {
   return m ? m[1] : t
 }
 
-/** 把 secId（0.000672 / 116.00700）转成东方财富行情页地址 */
+/** 把 secId 转成东方财富行情页地址。美股东财用 /us/<代码>.html，拼成 usAAPL.html 会 404 */
 function quoteUrl(secId: string): string {
   const [market, code] = secId.split('.')
+  if (market === '105' || market === '106' || market === '107') {
+    return `https://quote.eastmoney.com/us/${code}.html`
+  }
   const prefix = market === '0' ? 'sz' : market === '1' ? 'sh' : market === '116' ? 'hk' : 'us'
   return `https://quote.eastmoney.com/${prefix}${code}.html`
 }
@@ -84,6 +98,7 @@ function open(url: string): void {
 }
 
 async function refresh(force = false): Promise<void> {
+  if (loading.value) return // 自动刷新撞上手动刷新时跳过，避免叠加请求
   loading.value = true
   try {
     const r = await api.newsFetch(force)
@@ -98,13 +113,46 @@ async function refresh(force = false): Promise<void> {
   }
 }
 
-onMounted(() => { void refresh(false) })
+/** 启停定时器：开启时每 5 分钟 force 拉一次；关闭时清掉 */
+function applyAutoTimer(): void {
+  if (autoTimer) { clearInterval(autoTimer); autoTimer = null }
+  if (autoRefresh.value) {
+    autoTimer = setInterval(() => { void refresh(true) }, AUTO_REFRESH_MS)
+  }
+}
+
+/** 切换自动刷新开关，并持久化到设置 */
+async function toggleAuto(e: Event): Promise<void> {
+  const on = (e.target as HTMLInputElement).checked
+  autoRefresh.value = on
+  applyAutoTimer()
+  savingAuto.value = true
+  try {
+    await api.settingsSet({ newsAutoRefresh: on })
+  } catch { /* 持久化失败不影响本次会话的行为 */ }
+  finally { savingAuto.value = false }
+}
+
+onMounted(async () => {
+  // 读持久化开关（老配置没有该字段时按默认 true）
+  try {
+    const s = await api.settingsGet()
+    autoRefresh.value = s.newsAutoRefresh !== false
+  } catch { autoRefresh.value = true }
+  applyAutoTimer()
+  await refresh(false)
+})
+onBeforeUnmount(() => { if (autoTimer) { clearInterval(autoTimer); autoTimer = null } })
 </script>
 
 <style scoped>
 .news-view { width: 100%; max-width: 760px; }
 .card { background: var(--surface); border: 1px solid var(--border-soft); border-radius: 12px; padding: 18px 22px; margin-bottom: 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
 .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.head-actions { display: flex; align-items: center; gap: 12px; flex: none; }
+.auto-toggle { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-secondary); cursor: pointer; user-select: none; }
+.auto-toggle input { width: 14px; height: 14px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.auto-toggle input:disabled { cursor: default; opacity: .6; }
 h2 { font-size: 12px; color: var(--text-secondary); margin: 0 0 6px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }
 .sub { font-size: 11px; color: var(--text-tertiary); margin: 0; }
 .refresh { flex: none; padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font-size: 12px; cursor: pointer; }

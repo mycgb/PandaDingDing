@@ -140,9 +140,24 @@
         <span>指数温度条（大盘常驻一角）</span>
         <input type="checkbox" v-model="s.indexBarEnabled" @change="save" />
       </label>
+      <label class="row">
+        <span>新闻跑马灯（桌宠底部滚动快讯）</span>
+        <input type="checkbox" v-model="s.newsTickerEnabled" @change="save" />
+      </label>
+      <label class="row">
+        <span>今日收益（收盘后桌宠头顶）</span>
+        <input type="checkbox" v-model="s.pnlChipEnabled" @change="save" />
+      </label>
+      <label class="row">
+        <span>实时收益（盘中桌宠头顶）</span>
+        <input type="checkbox" v-model="s.livePnlEnabled" @change="save" />
+      </label>
       <div class="hint">
         老板键：按一次把桌宠、面板和温度条一起藏起来，再按一次恢复；隐身态只影响本次运行，不改「显示桌宠」的设置。组合键被其他软件占用时会静默失效。<br />
-        指数温度条：桌面右侧常驻上证 / 深成 / 创业板 / 科创50，红涨绿跌、横条长度表示幅度（±1.5% 打满）。可直接拖到任意角落，位置会记住。
+        指数温度条：桌面右侧常驻上证 / 深成 / 创业板 / 科创50，红涨绿跌、横条长度表示幅度（±1.5% 打满）。可直接拖到任意角落，位置会记住。<br />
+        新闻跑马灯：桌宠底部滚动展示最新财经快讯，每 5 分钟自动更新。<br />
+        今日收益：收盘后桌宠头顶显示当日总收益小胶囊（红涨绿跌），没填持仓时不显示。<br />
+        实时收益：交易时段桌宠头顶随行情刷新当日盈亏（标「实时」），收盘后自动换成定格的「今日」收益；两个胶囊互斥、只占一个位置。
       </div>
     </div>
 

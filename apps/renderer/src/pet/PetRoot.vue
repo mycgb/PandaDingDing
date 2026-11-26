@@ -1,6 +1,8 @@
 <template>
   <div class="pet-root" :class="{ 'has-pnl': !!pnlChip }">
     <PetStage ref="stage" :state="state" :skin="skin" @open-panel="onOpenPanel" />
+    <!-- 底部新闻跑马灯：滚动展示最新快讯，可在设置里关掉 -->
+    <NewsTicker v-if="newsTickerEnabled" />
     <!-- 收盘后：头顶挂一个「今日收益」小胶囊（红涨绿跌，睡觉时也保留） -->
     <div v-if="pnlChip" class="pnl-chip" :class="pnlChip.tone">{{ pnlChip.text }}</div>
     <BubbleLayer :class="{ 'bubble-hidden': sleeping }" :bubbles="bubbles" :bubble-color="bubbleColor"
@@ -11,6 +13,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import PetStage from './PetStage.vue'
+import NewsTicker from './NewsTicker.vue'
 import BubbleLayer from './BubbleLayer.vue'
 import { api, onPetState, onAlert, onNotice, onQuote, onSettingsChanged, onSoundPlay } from '../api'
 import type { AlertEvent, PetState, QuoteSnapshot, SystemNotice, AppSettings, SoundKind } from '@shared/index'
@@ -22,6 +25,9 @@ const bubbleColor = ref('#14181e')
 const bubbleFontSize = ref(11)
 const bubbles = ref<Bubble[]>([])
 const bubbleAlwaysOn = ref(false)
+const newsTickerEnabled = ref(true)
+const pnlChipEnabled = ref(true)
+const livePnlEnabled = ref(true)
 
 /** 躺睡状态（收盘 / 免打扰时段）：期间隐藏气泡，做到「睡着就安静」 */
 const sleeping = computed(() => state.value.action === 'sleepy')
@@ -45,7 +51,13 @@ onMounted(async () => {
   bubbleColor.value = s.bubbleColor || '#14181e'
   bubbleFontSize.value = s.bubbleFontSize || 11
   bubbleAlwaysOn.value = s.bubbleAlwaysOn === true
+  newsTickerEnabled.value = s.newsTickerEnabled !== false
+  pnlChipEnabled.value = s.pnlChipEnabled !== false
+  livePnlEnabled.value = s.livePnlEnabled !== false
   onSettingsChanged((ns: AppSettings) => {
+    newsTickerEnabled.value = ns.newsTickerEnabled !== false
+    pnlChipEnabled.value = ns.pnlChipEnabled !== false
+    livePnlEnabled.value = ns.livePnlEnabled !== false
     if (ns.bubbleColor) bubbleColor.value = ns.bubbleColor
     if (ns.bubbleFontSize) bubbleFontSize.value = ns.bubbleFontSize
     if (ns.skin && ns.skin !== skin.value) skin.value = ns.skin   // 皮肤实时切换
@@ -103,19 +115,34 @@ function playSound(kind: SoundKind): void {
 
 const latest = ref<QuoteSnapshot[]>([])
 
-/** 收盘收益胶囊：主进程只在 15:00 后带 dayPnl，没填持仓时为 null */
+/**
+ * 收益胶囊：盘中显示实时收益（liveDayPnl），收盘后显示定格收益（dayPnl），两者互斥。
+ * 各自受 livePnlEnabled / pnlChipEnabled 开关控制；没填持仓或不在对应时段时为 null。
+ */
 const pnlChip = computed<{ text: string; tone: 'up' | 'down' | 'flat' } | null>(() => {
   // 提醒进行中让位给气泡：三个气泡 + 胶囊会把小熊头顶挤满
   if (state.value.reason === 'alert') return null
-  const v = state.value.dayPnl
-  if (typeof v !== 'number' || !Number.isFinite(v)) return null
+  const live = state.value.liveDayPnl
+  const closed = state.value.dayPnl
+  // 盘中实时优先：有实时值且开关开
+  if (livePnlEnabled.value && typeof live === 'number' && Number.isFinite(live)) {
+    return formatChip(live, '实时')
+  }
+  // 收盘定格：有定格值且开关开
+  if (pnlChipEnabled.value && typeof closed === 'number' && Number.isFinite(closed)) {
+    return formatChip(closed, '今日')
+  }
+  return null
+})
+
+function formatChip(v: number, label: string): { text: string; tone: 'up' | 'down' | 'flat' } {
   const sign = v > 0 ? '+' : v < 0 ? '-' : ''
   return {
-    text: `今日 ${sign}${Math.abs(v).toFixed(2)} 元`,
+    text: `${label} ${sign}${Math.abs(v).toFixed(2)} 元`,
     // 红涨绿跌（A 股习惯），与气泡/托盘角标保持一致
     tone: v > 0 ? 'up' : v < 0 ? 'down' : 'flat',
   }
-})
+}
 
 /** 根据常显开关配置轮播定时器 */
 function configureTicker(): void {
@@ -202,7 +229,8 @@ watch(sleeping, (asleep) => {
 .pet-root {
   position: relative;
   width: 160px;
-  height: 210px;
+  /* 210(Pixi 画布/角色) + 44(底部新闻跑马灯)，与主进程 PET_H 保持一致 */
+  height: 254px;
 }
 /* 躺睡时整层气泡淡出并禁止点击（醒来淡入），做过渡避免生硬消失 */
 .pet-root :deep(.bubble-layer) {

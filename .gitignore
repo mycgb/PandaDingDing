@@ -16,6 +16,16 @@ tsconfig.tsbuildinfo
 半成品功能待办.md
 开发文档-桌宠股票基金监控应用.md
 dev.bat
+熊猫盯盯-海报.html
+熊猫盯盯-海报.png
+熊猫盯盯-海报-3x4.html
+熊猫盯盯-海报-3x4.png
+公众号文章-熊猫盯盯.html
 
-# AI 生图原始素材（用于重建帧池，体积大，不入库）
+# AI 生图/生视频原始素材（用于重建帧池，体积大，不入库）
 generated-images/
+generated-videos/
+
+# 根目录旧二维码副本（正式素材已放入 assets/wechat_qr.jpg）
+/关注公众号.jpg
+

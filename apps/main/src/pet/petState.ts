@@ -16,6 +16,22 @@ export function portfolioPct(snaps: QuoteSnapshot[], watchlist: WatchItem[]): nu
 
 export interface MoodThresholds { up: number; down: number }
 
+/**
+ * 今日收益金额（元）→ 桌宠表情动作（用户自定义规则，独立于涨跌幅情绪）：
+ *   盈利 → cheer（开心举「恭喜发财」）
+ *   亏损 → cry（哭泣）
+ *   平开 / 无持仓数据 → null（交回默认小熊 idle，保留原有漫游/涨跌幅情绪）
+ *
+ * 只看金额正负、不看涨跌幅阈值——哪怕涨跌幅为负，只要今日赚了钱就举恭喜发财。
+ * 返回 null 表示该层不接管，让位给后续 mood(+walk) 逻辑。
+ */
+export function pnlMoodAction(pnl: number | null | undefined): PetState['action'] | null {
+  if (pnl === null || pnl === undefined || !Number.isFinite(pnl)) return null
+  if (pnl > 0) return 'cheer'
+  if (pnl < 0) return 'cry'
+  return null   // 平开 → 默认小熊
+}
+
 /** 组合情绪 → 基础桌宠状态（不含提醒/离线打断） */
 export function baseMoodState(pct: number | null, th: MoodThresholds): PetState {
   if (pct === null) return { action: 'idle', reason: 'no-data' }
@@ -64,6 +80,8 @@ export function resolvePetState(input: {
   phase: MarketPhase
   pct: number | null
   thresholds: MoodThresholds
+  /** 今日收益金额（元）：盘中实时 / 收盘定格；有值时优先决定表情 */
+  pnl?: number | null
   roamActive?: boolean
   roamFacing?: 'left' | 'right'
 }): PetState {
@@ -79,6 +97,10 @@ export function resolvePetState(input: {
   if (input.dnd) return { action: 'sleepy', reason: 'dnd' }
   const o = restDayOverride(input.phase)
   if (o) return o
+  // 今日收益表情优先于组合涨跌幅情绪：赚钱举恭喜发财、亏钱哭、平开走默认小熊。
+  // 直接返回、不走漫游：有明确盈亏时保持站立表达，不来回走动。
+  const pnlAction = pnlMoodAction(input.pnl)
+  if (pnlAction) return { action: pnlAction, reason: 'pnl' }
   const base = baseMoodState(input.pct, input.thresholds)
   return roamDecision(base, input.roamActive ?? false, input.roamFacing)
 }

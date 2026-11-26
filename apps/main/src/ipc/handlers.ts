@@ -17,6 +17,9 @@ export interface IpcDeps {
   openPanel(): void
   closePanel(): void
   minimizePanel(): void
+  /** 窗口最大化/还原切换（Windows 风格标题栏按钮） */
+  toggleMaximizePanel(): void
+  isPanelMaximized(): boolean
   kline: import('../kline/KlineService.ts').KlineService
   listSkins(): import('../../../../packages/shared/src/index.ts').SkinInfo[]
   setPetVisible(visible: boolean): void
@@ -173,6 +176,8 @@ export function registerIpc(deps: IpcDeps): void {
   on(IPC.invoke.panelOpen, () => { deps.openPanel() })
   on(IPC.invoke.panelClose, () => { deps.closePanel() })
   on(IPC.invoke.panelMinimize, () => { deps.minimizePanel() })
+  on(IPC.invoke.panelMaximize, () => { deps.toggleMaximizePanel() })
+  on(IPC.invoke.panelIsMaximized, () => deps.isPanelMaximized())
   on(IPC.invoke.klineFetch, (_e, secId: string, klt: number, lmt?: number) => {
     secIdSchema.parse(secId)
     const k = z.number().int().refine((v) => [5, 15, 30, 60, 101, 102, 103].includes(v)).parse(klt)

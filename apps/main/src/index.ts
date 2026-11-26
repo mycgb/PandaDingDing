@@ -82,9 +82,10 @@ let bossHidden = false
 /** 当前已注册的老板键组合（用于改键时精确解绑） */
 let bossAccel: string | null = null
 
-/** 桌宠窗口尺寸（含气泡区）；与渲染层 PetStage 的 STAGE_W/H 保持一致 */
+/** 桌宠窗口尺寸（含气泡区）；渲染层 PetStage 画布仍是 160×210，PET_H 多出的 NEWS_TICKER_H 是底部新闻跑马灯 */
 const PET_W = 160
-const PET_H = 210
+const NEWS_TICKER_H = 44
+const PET_H = 210 + NEWS_TICKER_H
 
 /** 指数温度条：窗口尺寸（指数列表见 shared 的 MARKET_INDICES） */
 const INDEX_W = 134
@@ -310,6 +311,13 @@ function start(): void {
     openPanel: () => createPanelWindow(),
     closePanel: () => { panelWin?.close() },
     minimizePanel: () => { panelWin?.minimize() },
+    // 无边框窗口最大化/还原：Electron 的 isMaximized 判定后切换，位置/尺寸由系统记住还原态
+    toggleMaximizePanel: () => {
+      if (!panelWin || panelWin.isDestroyed()) return
+      if (panelWin.isMaximized()) panelWin.unmaximize()
+      else panelWin.maximize()
+    },
+    isPanelMaximized: () => !!panelWin && !panelWin.isDestroyed() && panelWin.isMaximized(),
     kline: klineSvc,
     listSkins: () => listSkins(),
     setPetVisible: (visible) => setPetVisible(visible),
@@ -740,6 +748,9 @@ function isRoamProgrammatic(): boolean {
  */
 function createRoamController(): void {
   roamCtrl = new RoamController({
+    // 窗口已加高（底部新闻条），贴底计算要用真实高度，否则新闻条会被切到屏幕外
+    petW: PET_W,
+    petH: PET_H,
     getPosition: () => {
       const [x, y] = petWin && !petWin.isDestroyed() ? petWin.getPosition() : [0, 0]
       return { x, y }
@@ -787,7 +798,7 @@ function createPanelWindow(): void {
     // Windows 11 原生圆角：Electron 的 roundedCorners 只对「非透明」无边框窗口生效。
     // transparent:true 会走分层窗口路径，DWM 不画圆角（四角是直角）。
     // 因此这里用 transparent:false + backgroundColor，让 DWM 真正裁出圆角；
-    // 交通灯按钮仍由渲染层绘制，macOS 观感由 CSS 负责。
+    // 窗口控制按钮（最小化/最大化/关闭）由渲染层绘制，Windows 风格样式由 CSS 负责。
     frame: false, transparent: false, hasShadow: true,
     // 窗口原生背景跟随主题，避免无边框窗口边缘与内容色不一致
     backgroundColor: settings.theme === 'dark' ? '#1c1c1e' : '#f6f6f8',
@@ -1167,6 +1178,18 @@ function pushPetState(): void {
   const pct = portfolioPct(latestSnapshots, wl)
   const now = new Date()
   const phase = phaseOf(now)
+  // 四舍五入到分：浮点累加会算出 300.0000000000003 这种数
+  const round2 = (v: number | null): number | null => (v === null ? null : Math.round(v * 100) / 100)
+  // 盘中实时收益：交易时段随行情刷新（preOpen/continuous/lunch），非交易时段不显示。
+  // 注意开盘前 price 常为 0，portfolioDayPnl 内部 calcPosition 会跳过，天然返回 null。
+  const livePhase = phase === 'preOpen' || phase === 'continuous' || phase === 'lunch'
+  const livePnl = livePhase ? round2(portfolioDayPnl()) : null
+  // 收盘后（15:00 起）给桌宠挂「今日收益」定格胶囊，与实时胶囊互斥（收盘后 liveDayPnl 为 null）。
+  // 注意 phaseOf 在开盘前也算 closed，所以额外卡 15:00，避免早上 8 点显示「今日 ±0」。
+  const afterClose = isAfterClose(now)
+  const closedPnl = afterClose ? round2(portfolioDayPnl()) : null
+  // 今日收益表情：盘中用实时、收盘后用定格，两者互斥，只在交易/盘后时段驱动桌宠情绪。
+  const effectivePnl = livePnl !== null ? livePnl : closedPnl
   const state: PetState = resolvePetState({
     alertActive: Date.now() < alertHoldUntil,
     alertDirection: lastAlertDirection ?? 'up',
@@ -1178,14 +1201,12 @@ function pushPetState(): void {
     phase,
     pct,
     thresholds: moodThresholds(),
+    pnl: effectivePnl,
     roamActive: roamCtrl?.isRoaming ?? false,
     roamFacing: roamCtrl?.roamFacing ?? 'right',
   })
-  // 收盘后（15:00 起）给桌宠挂个「今日收益」小胶囊。
-  // 注意 phaseOf 在开盘前也算 closed，所以额外卡 15:00，避免早上 8 点显示「今日 ±0」。
-  // 四舍五入到分：浮点累加会算出 300.0000000000003 这种数
-  const pnl = isAfterClose(now) ? portfolioDayPnl() : null
-  state.dayPnl = pnl === null ? null : Math.round(pnl * 100) / 100
+  state.liveDayPnl = livePnl
+  state.dayPnl = closedPnl
   broadcast(IPC.push.petState, state)
   updateTrayBadge(pct, Date.now() < alertHoldUntil)
 }

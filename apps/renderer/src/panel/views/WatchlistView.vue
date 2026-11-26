@@ -42,11 +42,11 @@
           <td>{{ i + 1 }}</td>
           <td><span class="name-hover" @mouseenter="onNameEnter($event, w)" @mouseleave="onNameLeave">{{ w.name }}</span></td>
           <td class="mono">{{ w.code }}</td>
-          <td class="mono">{{ fmt(w.price) }}</td>
+          <td class="mono" :title="w.price && w.price > 0 ? '现价' : '开盘前/停牌，显示昨收'">{{ fmt(w.effPrice) }}</td>
           <td class="mono" :class="cls(w.changePct)">{{ fmtPct(w.changePct) }}</td>
           <td class="mono">{{ fmtAmount(w.amount) }}</td>
           <td>
-            <button v-if="!w.pos" class="mini ghost" @click="editPos(w)">＋ 记持仓</button>
+            <button v-if="!(w.shares > 0)" class="mini ghost" @click="editPos(w)">＋ 记持仓</button>
             <button v-else class="pos-cell" @click="editPos(w)">
               <span class="pos-shares">{{ w.shares }} 股</span>
               <span class="pos-cost">成本 {{ w.costPrice > 0 ? w.costPrice.toFixed(2) : '未填' }}</span>
@@ -256,6 +256,8 @@ async function onImportFile(e: Event): Promise<void> {
 
 type Row = WatchItem & {
   price: number | null
+  /** 展示/计算用的有效价：有现价用现价，开盘前现价为 0 时用昨收兜底 */
+  effPrice: number | null
   changePct: number | null
   amount: number | null
   pos: PositionStats | null
@@ -266,18 +268,24 @@ const rows = computed((): Row[] => {
     const q = quotes.value.get(w.secId)
     const price = q?.price ?? null
     const prevClose = q?.prevClose ?? null
+    // 开盘前/停牌时现价为 0：用昨收兜底，避免持仓（股数/成本/汇总）被误判为「未持仓」而隐藏
+    const effPrice = price && price > 0 ? price : (prevClose && prevClose > 0 ? prevClose : null)
     return {
       ...w,
       price,
+      effPrice,
       changePct: q?.changePct ?? null,
       amount: q?.amount ?? null,
-      pos: calcPosition({ shares: w.shares, costPrice: w.costPrice, price, prevClose }),
+      pos: calcPosition({ shares: w.shares, costPrice: w.costPrice, price: effPrice, prevClose }),
     }
   })
   const k = sortKey.value
   if (!k) return base
-  const pick = (r: Row): number | null =>
-    k === 'dayPnl' ? (r.pos?.dayPnl ?? null) : ((r[k as keyof Row] as number | null | undefined) ?? null)
+  const pick = (r: Row): number | null => {
+    if (k === 'dayPnl') return r.pos?.dayPnl ?? null
+    if (k === 'price') return r.effPrice
+    return ((r[k as keyof Row] as number | null | undefined) ?? null)
+  }
   return base.sort((a, b) => {
     const av = pick(a) ?? -Infinity
     const bv = pick(b) ?? -Infinity

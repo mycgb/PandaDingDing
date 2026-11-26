@@ -30,6 +30,11 @@ interface ActionCfg {
   from?: string        // 复用哪个动作的帧池（默认同名目录）
   start?: number       // 从源帧池的第几帧开始（1 基，默认 1）
   /**
+   * 帧间交叉淡入时长（ms）：帧数少、姿态差异大的动作（如哭，只有 4 帧）硬切会一卡一卡，
+   * 开启后新帧从透明渐变覆盖旧帧，消除跳变。0/缺省为直接切换（默认行为不变）。
+   */
+  fadeMs?: number
+  /**
    * 程序化呼吸：用单帧 + 正弦曲线做缩放，替代「多帧切换」。
    * 多帧呼吸受绘制质量限制（AI 出的帧往往是整体位移而非腹部起伏），
    * 逐帧切换必然顿挫；连续缩放是 60fps 平滑的。
@@ -68,6 +73,11 @@ const STAGE_H = 210
 
 let app: Application | null = null
 let sprite: Sprite | null = null
+/** 交叉淡入用叠层精灵：新帧先画在它上面、alpha 0→1 渐变，完成后写回主 sprite。仅 fadeMs>0 的动作使用 */
+let fadeSprite: Sprite | null = null
+let fadeTimer: ReturnType<typeof setInterval> | null = null
+let fadeStart = 0
+let fadeDuration = 0
 let manifest: SkinManifest | null = null
 /** 帧池：只存放真实加载过的目录（如 idle），其他动作按 from 引用 */
 const pools = new Map<string, Texture[]>()
@@ -161,6 +171,9 @@ function frameFor(key: string, index: number): Texture | null {
 
 function resolveAction(action: string): string {
   if (manifest && manifest.actions[action]) return action
+  // 今日收益情绪：老皮肤没有独立的 cheer/cry，降级到同帧池的 happy/sad
+  if (action === 'cheer') return resolveAction('happy')
+  if (action === 'cry') return resolveAction('sad')
   if (action === 'panic-happy') return resolveAction('happy')
   if (action === 'panic-sad') return resolveAction('sad')
   // 老皮肤没有 alert-time：退化成摇头（sad 帧）也不会没反应
@@ -180,6 +193,8 @@ function playAction(action: string): void {
 
   currentAction = key
   currentFrame = 0
+  // 切动作：立刻显示第一帧，先收掉上一个动作可能残留的淡入叠层
+  stopFade()
   sprite.texture = first
   // 朝向在每次切动作时统一重置：walk 向左时 scale.x 为负，
   // 若只在 watch 里纠正，任何绕过 watch 的切换（皮肤热更、直接 setAction）
@@ -189,6 +204,8 @@ function playAction(action: string): void {
   const loop = cfg.loop
   const next = cfg.next ?? null
   const stepMs = Math.max(16, Math.round(1000 / fps))
+  // 帧间淡入时长：不得超过帧间隔，且至少留一帧稳态（默认 0 = 直接切换）
+  fadeDuration = Math.min(cfg.fadeMs ?? 0, Math.max(0, stepMs - 60))
 
   stopFrameTimer()
   stopTransformTimer()
@@ -235,11 +252,60 @@ function playAction(action: string): void {
       }
     }
     const t = frameFor(currentAction, currentFrame)
-    if (t && sprite) sprite.texture = t
+    if (t) setFrame(t)
     diag({ frame: currentFrame })
   }, stepMs)
-  diag({ playing: key, fps, stepMs })
+  diag({ playing: key, fps, stepMs, fadeDuration })
 }
+
+/**
+ * 设置当前帧：fadeDuration>0 时用交叉淡入（新帧从 alpha 0 渐变到 1），否则直接换贴图。
+ * 淡入叠层 fadeSprite 盖在主 sprite 上、与主 sprite 同变换；淡入完成后把结果写回主 sprite。
+ */
+function setFrame(t: Texture): void {
+  if (fadeDuration <= 0 || !sprite || !app) { if (sprite) sprite.texture = t; return }
+  if (!fadeSprite) return
+  if (fadeTimer !== null) { clearInterval(fadeTimer); finishFade() }   // 上一帧淡入未完先落定，避免叠层错乱
+  fadeSprite.texture = t
+  fadeSprite.alpha = 0
+  fadeSprite.visible = true
+  // 新贴图设好后再锁定显示尺寸（Pixi 按当前贴图算 scale），保证淡入帧不缩放跳变
+  fadeSprite.width = sprite.width
+  fadeSprite.height = sprite.height
+  fadeSprite.x = sprite.x
+  fadeSprite.y = sprite.y
+  fadeSprite.rotation = sprite.rotation
+  fadeStart = performance.now()
+  fadeTimer = setInterval(() => {
+    if (!fadeSprite || !sprite) return
+    const p = Math.min(1, (performance.now() - fadeStart) / fadeDuration)
+    fadeSprite.alpha = p
+    diag({ fading: true, fadeAlpha: Number(p.toFixed(3)) })
+    if (p >= 1) finishFade()
+  }, 16)   // ~60fps 渐变
+  diag({ fading: true, fadeAlpha: 0 })
+}
+
+/** 淡入完成/中断：把叠层贴图写回主精灵并隐藏叠层 */
+function finishFade(): void {
+  if (fadeTimer !== null) { clearInterval(fadeTimer); fadeTimer = null }
+  if (fadeSprite && sprite && fadeSprite.texture) {
+    sprite.texture = fadeSprite.texture
+    fadeSprite.visible = false
+    fadeSprite.alpha = 0
+  }
+  fadeDoneCount += 1
+  diag({ fading: false, fadeAlpha: 1, fadeDoneCount })
+}
+
+/** 切动作时收掉淡入叠层，但保留主 sprite 当前帧（不强行落定，下一行会设第一帧） */
+function stopFade(): void {
+  if (fadeTimer !== null) { clearInterval(fadeTimer); fadeTimer = null }
+  if (fadeSprite) { fadeSprite.visible = false; fadeSprite.alpha = 0 }
+  diag({ fading: false })
+}
+
+let fadeDoneCount = 0
 
 function stopFrameTimer(): void {
   if (frameTimer !== null) { clearInterval(frameTimer); frameTimer = null }
@@ -267,6 +333,17 @@ function applyTransform(elapsedMs = 0): void {
   } else {
     sprite.rotation = 0
     sprite.x = STAGE_W / 2
+  }
+  // 淡入叠层跟随主精灵变换；缩放还要乘以叠层当前帧的固有尺寸差
+  // （各帧原始像素尺寸可能略有不同，主精灵靠 width/height 锁定显示尺寸，这里同步锁定）
+  if (fadeSprite) {
+    fadeSprite.anchor.copyFrom(sprite.anchor)
+    fadeSprite.x = sprite.x
+    fadeSprite.y = sprite.y
+    fadeSprite.rotation = sprite.rotation
+    // width/height 锁定显示尺寸（Pixi 按叠层当前贴图算 scale），各帧原始尺寸不同也对得上
+    fadeSprite.width = sprite.width
+    fadeSprite.height = sprite.height
   }
   // 供调试/冒烟读取，避免为了取缩放值反复截图
   ;(window as unknown as { __petBreath?: unknown }).__petBreath = {
@@ -314,6 +391,12 @@ async function applySkin(skinId: string): Promise<void> {
 
   stopFrameTimer()
   stopTransformTimer()
+  if (fadeTimer !== null) { clearInterval(fadeTimer); fadeTimer = null }
+  if (fadeSprite) {
+    app?.stage.removeChild(fadeSprite)
+    fadeSprite.destroy()
+    fadeSprite = null
+  }
   if (sprite) {
     app?.stage.removeChild(sprite)
     sprite.destroy()
@@ -326,6 +409,12 @@ async function applySkin(skinId: string): Promise<void> {
   applyDisplaySize()
   applyFacing()
   app!.stage.addChild(sprite)
+  // 淡入叠层：初始隐藏，画在主精灵之上。setFrame 用到时再显示。
+  fadeSprite = new Sprite(idle)
+  fadeSprite.anchor.set(0.5, 1)
+  fadeSprite.visible = false
+  app!.stage.addChild(fadeSprite)
+  applyTransform(0)   // 让叠层尺寸/位置与主精灵一致
   playAction(props.state.action)
   diag({ skinChanged: skinId })
 }
@@ -378,6 +467,7 @@ function applyFacing(): void {
 onBeforeUnmount(() => {
   stopFrameTimer()
   stopTransformTimer()
+  if (fadeTimer !== null) { clearInterval(fadeTimer); fadeTimer = null }
   app?.destroy(true)
 })
 

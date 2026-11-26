@@ -1,20 +1,19 @@
 <template>
   <div class="panel-root" :class="`theme-${theme}`">
-    <!-- macOS 风格标题栏：交通灯 + 可拖拽区 -->
-    <header class="titlebar">
-      <div class="traffic-lights">
-        <button class="light close" title="关闭" @click="api.panelClose()">
-          <span>×</span>
-        </button>
-        <button class="light minimize" title="最小化" @click="api.panelMinimize()">
+    <!-- Windows 风格标题栏：左侧标题 + 右侧最小化/最大化/关闭 + 可拖拽区 -->
+    <header class="titlebar" @dblclick.self="toggleMaximize">
+      <div class="titlebar-label" @dblclick="toggleMaximize">熊猫盯盯</div>
+      <div class="win-controls">
+        <button class="wc-btn minimize" title="最小化" @click="api.panelMinimize()">
           <span>−</span>
         </button>
-        <button class="light zoom" title="最大化" @click="toggleMaximize">
-          <span>+</span>
+        <button class="wc-btn maximize" :title="isMaximized ? '还原' : '最大化'" @click="toggleMaximize">
+          <span>{{ isMaximized ? '❐' : '□' }}</span>
+        </button>
+        <button class="wc-btn close" title="关闭" @click="api.panelClose()">
+          <span>×</span>
         </button>
       </div>
-      <div class="titlebar-label">熊猫盯盯</div>
-      <div class="titlebar-spacer" />
     </header>
 
     <!-- 行情源/网络事件提示：独立提示条，不再污染 source 字段 -->
@@ -90,6 +89,7 @@ const hasUpdate = ref(false)
 onMounted(async () => {
   const s = await api.settingsGet()
   setTheme(s.theme ?? 'light')
+  await refreshMaximized()
   ds.value = await api.dataSourceStatus()
   statusTimer = setInterval(async () => { ds.value = await api.dataSourceStatus() }, 10_000)
   // 更新状态可能在本窗口打开前就已查出（后台 15 秒检查），这里补读一次
@@ -117,6 +117,7 @@ onBeforeUnmount(() => {
 async function onFocus(): Promise<void> {
   const s = await api.settingsGet()
   setTheme(s.theme ?? 'light')
+  await refreshMaximized()
 }
 
 function timeago(t: number): string {
@@ -125,12 +126,16 @@ function timeago(t: number): string {
   return `${s}s 前`
 }
 
+/** 当前窗口是否最大化（用于最大化/还原图标切换） */
+const isMaximized = ref(false)
+
+async function refreshMaximized(): Promise<void> {
+  try { isMaximized.value = await api.panelIsMaximized() } catch { /* 老版本主进程无此通道，忽略 */ }
+}
+
 async function toggleMaximize(): Promise<void> {
-  // 最大化按钮：用 IPC 让主进程切换（复用 panelMinimize 通道不够，这里直接重载窗口状态）
-  // 为保持简单，macOS 风格的 zoom 按钮暂时只做 getter：通过 location.reload 无意义，
-  // 因此这里用 window 尺寸的 CSS 切换模拟"缩放"效果。
-  const root = document.querySelector('.panel-root') as HTMLElement | null
-  if (root) root.classList.toggle('zoomed')
+  await api.panelMaximize()
+  await refreshMaximized()
 }
 </script>
 
@@ -196,36 +201,37 @@ async function toggleMaximize(): Promise<void> {
 }
 .panel-root button { font: inherit; }
 
-/* 标题栏：macOS traffic lights */
+/* 标题栏：Windows 风格（标题左、控制按钮右） */
 .titlebar {
-  height: 38px;
+  height: 36px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  padding: 0 14px;
+  justify-content: space-between;
+  padding: 0 0 0 14px;
   background: var(--titlebar-bg);
   border-bottom: 1px solid var(--border-soft);
   -webkit-app-region: drag;
   app-region: drag;
   user-select: none;
 }
-.traffic-lights { display: flex; gap: 8px; -webkit-app-region: no-drag; app-region: no-drag; }
-.light {
-  width: 13px; height: 13px; border-radius: 50%; border: 1px solid rgba(0,0,0,0.12);
-  padding: 0; cursor: pointer; display: flex; align-items: center; justify-content: center;
-  line-height: 1; font-size: 10px; color: rgba(0,0,0,0.45);
-}
-.light:hover { filter: brightness(0.92); }
-.light.close { background: #ff5f57; }
-.light.minimize { background: #febc2e; }
-.light.zoom { background: #28c840; }
-.light span { opacity: 0; transition: opacity .12s; }
-.traffic-lights:hover .light span { opacity: 1; }
-
 .titlebar-label {
-  position: absolute; left: 0; right: 0; text-align: center;
-  font-size: 12px; font-weight: 600; color: var(--text-secondary); pointer-events: none;
+  font-size: 12px; font-weight: 600; color: var(--text-secondary);
+  -webkit-app-region: drag; app-region: drag;
 }
+.win-controls {
+  display: flex; align-self: stretch;
+  -webkit-app-region: no-drag; app-region: no-drag;
+}
+.wc-btn {
+  width: 46px; height: 100%; border: 0; background: transparent;
+  color: var(--text-secondary); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; line-height: 1; padding: 0;
+  transition: background .12s, color .12s;
+}
+.wc-btn:hover { background: var(--hover); color: var(--text); }
+.wc-btn.close:hover { background: #e81123; color: #fff; }
 
 .content { flex: 1; display: flex; min-height: 0; }
 

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { portfolioPct, resolvePetState, baseMoodState, restDayOverride, roamDecision } from './petState.ts'
+import { portfolioPct, resolvePetState, baseMoodState, restDayOverride, roamDecision, pnlMoodAction } from './petState.ts'
 import type { QuoteSnapshot, WatchItem } from '../../../../packages/shared/src/index.ts'
 
 const w = (secId: string, weight = 1): WatchItem => ({
@@ -87,5 +87,32 @@ assert.equal(resolvePetState({ alertActive: true, alertDirection: 'down', dnd: t
 assert.equal(resolvePetState({ offline: true, dnd: true, phase: 'continuous', pct: 0, thresholds: th }).action, 'offline')
 // 关掉免打扰后恢复正常情绪
 assert.equal(resolvePetState({ phase: 'continuous', pct: 5, thresholds: th, dnd: false }).action, 'idle-smile')
+
+// ---------- 今日收益金额 → 桌宠表情 ----------
+// pnlMoodAction：正→举恭喜发财、负→哭、平/无数据→null（交回默认小熊）
+assert.equal(pnlMoodAction(123.45), 'cheer')
+assert.equal(pnlMoodAction(-500), 'cry')
+assert.equal(pnlMoodAction(0), null)
+assert.equal(pnlMoodAction(null), null)
+assert.equal(pnlMoodAction(undefined), null)
+assert.equal(pnlMoodAction(Number.NaN), null)
+
+// resolvePetState 集成：收益表情压过涨跌幅情绪，且不受阈值方向影响
+assert.equal(resolvePetState({ phase: 'continuous', pct: -5, thresholds: th, pnl: 100 }).action, 'cheer')
+assert.equal(resolvePetState({ phase: 'continuous', pct: 5, thresholds: th, pnl: -100 }).action, 'cry')
+assert.equal(resolvePetState({ phase: 'continuous', pct: 5, thresholds: th, pnl: 100 }).reason, 'pnl')
+// 有明确盈亏时不漫游：保持站立表达
+assert.equal(resolvePetState({ phase: 'continuous', pct: 0, thresholds: th, pnl: 100, roamActive: true }).action, 'cheer')
+assert.equal(resolvePetState({ phase: 'continuous', pct: 0, thresholds: th, pnl: -100, roamActive: true }).action, 'cry')
+// 平开/无数据：回退默认小熊（idle / 漫游 / 涨跌幅情绪照旧）
+assert.equal(resolvePetState({ phase: 'continuous', pct: 0, thresholds: th, pnl: 0 }).action, 'idle')
+assert.equal(resolvePetState({ phase: 'continuous', pct: 0, thresholds: th, pnl: 0, roamActive: true }).action, 'walk')
+assert.equal(resolvePetState({ phase: 'continuous', pct: 5, thresholds: th, pnl: null }).action, 'idle-smile')
+assert.equal(resolvePetState({ phase: 'continuous', pct: -5, thresholds: th }).action, 'idle-frown')
+// 高优先级状态不被收益表情覆盖：提醒 / 离线 / 免打扰 / 休市日
+assert.equal(resolvePetState({ alertActive: true, alertKind: 'down', phase: 'continuous', pct: 0, thresholds: th, pnl: 100 }).action, 'panic-sad')
+assert.equal(resolvePetState({ offline: true, phase: 'continuous', pct: 0, thresholds: th, pnl: 100 }).action, 'offline')
+assert.equal(resolvePetState({ dnd: true, phase: 'continuous', pct: 0, thresholds: th, pnl: 100 }).action, 'sleepy')
+assert.equal(resolvePetState({ phase: 'weekend', pct: 0, thresholds: th, pnl: 100 }).action, 'sleepy')
 
 console.log('pet-state: all tests passed')
